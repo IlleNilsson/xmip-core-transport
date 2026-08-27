@@ -188,6 +188,157 @@ pub trait Transport {
 
     /// Deliver bytes to a target expressed in this protocol's own terms.
     fn send(&self, target: &str, bytes: &[u8]) -> Result<()>;
+
+    /// How this protocol claims a discrete artefact, where it can.
+    ///
+    /// `None` for protocols with no artefact to claim — a listening socket, a
+    /// broker topic. [`NoNativeClaim`] for protocols with artefacts and no
+    /// locking, which is FTP, SFTP and IMAP.
+    fn claims(&self) -> Option<&dyn ResourceClaim> {
+        None
+    }
+}
+
+// ---------------------------------------------------------------------------
+// claiming an artefact
+// ---------------------------------------------------------------------------
+
+/// One discrete claimable thing, addressed in its protocol's own terms.
+///
+/// `sftp://partner.example/out/order-1.edi`, an S3 key, a blob path, a message
+/// uid in a mailbox.
+///
+/// **Not `xmip_core::ArtifactId`**, and the near-collision is worth the
+/// sentence: an Xmip Artifact is a *configured object* — a Receive Location, a
+/// Send Port — and this is a thing sitting at the far end of one. ADR-0017
+/// spelled it `ArtefactId`, one letter from the other, which is how the two
+/// would have been confused in a signature at some point.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct Artefact(String);
+
+impl Artefact {
+    #[must_use]
+    pub fn new(address: impl Into<String>) -> Self {
+        Self(address.into())
+    }
+
+    #[must_use]
+    pub fn address(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for Artefact {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+/// Proof that the endpoint granted the claim.
+///
+/// Carries whatever the protocol handed back — a blob lease id, an ETag, a
+/// handle — because releasing usually needs it and only the transport that
+/// obtained it knows what it means.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Claimed {
+    pub artefact: Artefact,
+    pub token: String,
+}
+
+impl Claimed {
+    #[must_use]
+    pub fn new(artefact: Artefact, token: impl Into<String>) -> Self {
+        Self {
+            artefact,
+            token: token.into(),
+        }
+    }
+}
+
+/// One holder of a collidable artefact at a time — claimed at the endpoint,
+/// by the protocol, atomically.
+///
+/// **This replaces exclusiveness.** ADR-0017 built a lease store inside Xmip
+/// and then could not say where a cluster-wide lease would live: per-node
+/// persistence proves nothing to another node, and every external coordinator
+/// that could have held it — consul, etcd, redis, zookeeper — makes Xmip
+/// depend on somebody else's cluster to answer a question about its own.
+///
+/// The claim was always available in the place that already has the shared
+/// write path, which is the partner's storage rather than Xmip's:
+///
+/// | family | native claim |
+/// | --- | --- |
+/// | local file, SMB | share-mode open, mandatory on Windows, advisory on Unix |
+/// | Azure Blob | a renewable blob lease |
+/// | S3 | `PUT` with `If-None-Match: *` on a claim key |
+/// | Google Cloud Storage | a generation precondition |
+/// | POP3 | the session locks the maildrop |
+/// | SQL | `SELECT … FOR UPDATE SKIP LOCKED` |
+///
+/// Every one of those is atomic and already cluster-wide, because the endpoint
+/// is one thing however many nodes are asking. No lease, no store, no
+/// consensus, and nothing for Xmip to keep consistent across nodes.
+///
+/// It also answers a question exclusiveness never could: whether something
+/// **outside Xmip** holds the artefact. A file another process has open
+/// includes a producer still writing it, and no amount of Xmip-internal
+/// bookkeeping sees that.
+///
+/// ADR-0017 clause 3: **the artefact, not the location.** Two nodes may poll
+/// one directory at the same time and take different files. Claiming the
+/// directory instead is what leaves the second node with nothing to do.
+pub trait ResourceClaim: Send + Sync {
+    /// Whether anything is using it, inside Xmip or outside.
+    ///
+    /// # Errors
+    ///
+    /// Where the endpoint could not be asked. Unreachable is not available.
+    fn is_available(&self, artefact: &Artefact) -> Result<bool>;
+
+    /// Take it. Atomic, or it is not a claim.
+    ///
+    /// # Errors
+    ///
+    /// Where somebody else holds it, or the endpoint could not be reached.
+    fn claim(&self, artefact: &Artefact) -> Result<Claimed>;
+
+    /// # Errors
+    ///
+    /// Where the endpoint refused. A claim that cannot be released is not a
+    /// leak — it expires on the endpoint's own terms.
+    fn release(&self, claimed: Claimed) -> Result<()>;
+}
+
+/// A protocol with artefacts and no locking. ADR-0017 clause 3c.
+///
+/// FTP, SFTP and IMAP. Neither protocol has locking, and clause 3c is explicit
+/// that they are **not** made safe by renaming the artefact at claim time —
+/// that puts a second mechanism in the one place nothing is supposed to move,
+/// to defend against a non-Xmip client polling the same directory, which no
+/// mechanism defends against anyway.
+///
+/// What these transports need instead is a stability check: an artefact whose
+/// size and timestamp are unchanged across two consecutive listings, or a
+/// producer that writes to a temporary name and renames on completion.
+///
+/// Saying this in a type beats every such transport writing the same three
+/// stubs and one of them quietly returning something else.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct NoNativeClaim;
+
+impl ResourceClaim for NoNativeClaim {
+    fn is_available(&self, _artefact: &Artefact) -> Result<bool> {
+        Ok(true)
+    }
+
+    fn claim(&self, artefact: &Artefact) -> Result<Claimed> {
+        Ok(Claimed::new(artefact.clone(), String::new()))
+    }
+
+    fn release(&self, _claimed: Claimed) -> Result<()> {
+        Ok(())
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1063,5 +1214,39 @@ mod tests {
             &std::io::Error::new(std::io::ErrorKind::ConnectionRefused, "refused"),
         );
         assert!(error.retryable);
+    }
+
+    #[test]
+    fn a_protocol_with_no_artefact_claims_nothing() {
+        // A listening socket has nothing to claim. `None` rather than
+        // NoNativeClaim: the two are different answers — no artefact at all,
+        // versus an artefact the protocol cannot lock.
+        assert!(TcpTransport::new("127.0.0.1:0").claims().is_none());
+    }
+
+    #[test]
+    fn a_protocol_with_artefacts_and_no_locking_says_so() {
+        // ADR-0024 clause 5. FTP, SFTP and IMAP. Available, always, and the
+        // claim carries no token because the endpoint granted nothing.
+        let ftp = NoNativeClaim;
+        let artefact = Artefact::new("sftp://partner.example/out/order-1.edi");
+
+        assert!(ftp.is_available(&artefact).expect("asked"));
+
+        let claimed = ftp.claim(&artefact).expect("claimed");
+
+        assert_eq!(claimed.artefact, artefact);
+        assert!(claimed.token.is_empty());
+    }
+
+    #[test]
+    fn an_artefact_is_addressed_in_its_own_protocols_terms() {
+        // Not xmip_core::ArtifactId. An Xmip Artifact is a configured object —
+        // a Receive Location — and this is a thing at the far end of one.
+        // ADR-0017 spelled it ArtefactId, one letter from the other.
+        let artefact = Artefact::new("s3://bucket/in/order-1.edi");
+
+        assert_eq!(artefact.address(), "s3://bucket/in/order-1.edi");
+        assert_eq!(artefact.to_string(), "s3://bucket/in/order-1.edi");
     }
 }
