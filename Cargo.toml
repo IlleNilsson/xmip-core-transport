@@ -15,5 +15,38 @@ path = "src/lib.rs"
 [lints.rust]
 unsafe_code = "forbid"
 
+[lints.clippy]
+# Warned, never denied. docs/governance/rust-style.md section 3: a function
+# length gate was tried in this estate's PowerShell and produced a sixteen-entry
+# waiver list while catching nothing. The number worth reading is branches, and
+# clippy prints both.
+too_many_lines = "warn"
+
+# The ones that catch real defects rather than taste.
+pedantic = { level = "warn", priority = -1 }
+missing_errors_doc = "warn"
+missing_panics_doc = "warn"
+unwrap_used = "warn"
+expect_used = "allow"
+
+[features]
+default = []
+
+# HTTPS. Off by default because it is the only thing here that reaches outside
+# the standard library, and a forwarder on an edge device should not carry a TLS
+# stack it never opens.
+#
+# Declared, not implied. Four `cfg(feature = "tls")` guards referenced this
+# feature while Cargo.toml did not declare it, which meant the HTTPS path could
+# never compile in and the only thing saying so was a warning.
+tls = ["dep:rustls", "dep:rustls-native-certs"]
+
 [dependencies]
+# technology.rs and nothing else. Every protocol here is standard library only,
+# which is what makes this crate build on every target in deployment-model.md
+# without a cross-compilation story.
 serde = { version = "1", features = ["derive"] }
+
+# Optional, and only for `tls`.
+rustls = { version = "0.23", optional = true }
+rustls-native-certs = { version = "0.8", optional = true }
