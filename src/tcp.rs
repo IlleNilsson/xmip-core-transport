@@ -11,7 +11,7 @@ use std::time::Duration;
 use crate::arrived::Arrived;
 use crate::direction::Directions;
 use crate::error::{classify, Result};
-use crate::transport::Transport;
+use crate::protocol::Transport;
 
 pub struct TcpTransport {
     bind: String,
