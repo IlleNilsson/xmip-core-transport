@@ -10,7 +10,7 @@ use std::net::UdpSocket;
 use crate::arrived::Arrived;
 use crate::direction::Directions;
 use crate::error::{classify, Result};
-use crate::transport::Transport;
+use crate::protocol::Transport;
 
 /// The largest a UDP payload can be over IPv4: 65535 less the 8-byte UDP header
 /// and the 20-byte IP header.

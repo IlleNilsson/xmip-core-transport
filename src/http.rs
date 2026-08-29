@@ -24,7 +24,7 @@ use std::net::{TcpListener, TcpStream};
 use crate::arrived::Arrived;
 use crate::direction::Directions;
 use crate::error::{classify, Result};
-use crate::transport::Transport;
+use crate::protocol::Transport;
 
 use target::HttpTarget;
 

@@ -47,9 +47,9 @@ pub mod error;
 pub mod file;
 pub mod http;
 pub mod smtp;
+pub mod protocol;
 pub mod tcp;
 pub mod technology;
-pub mod transport;
 pub mod udp;
 pub mod wire;
 
@@ -61,5 +61,5 @@ pub use file::FileTransport;
 pub use http::HttpTransport;
 pub use smtp::SmtpTransport;
 pub use tcp::TcpTransport;
-pub use transport::Transport;
+pub use protocol::Transport;
 pub use udp::UdpTransport;
