@@ -117,6 +117,7 @@ pub fn header<'a>(lines: &'a [String], name: &str) -> Option<&'a str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fmt::Write;
 
     #[test]
     fn a_default_port_is_added_only_when_one_is_missing() {
@@ -183,7 +184,7 @@ mod tests {
         let mut flood = String::from("POST / HTTP/1.1\r\n");
 
         for n in 0..=MAX_HEADERS {
-            flood.push_str(&format!("X-{n}: v\r\n"));
+            write!(flood, "X-{n}: v\r\n").expect("writing to a String cannot fail");
         }
 
         flood.push_str("\r\n");

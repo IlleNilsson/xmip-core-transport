@@ -44,12 +44,14 @@ pub enum TransportEventKind {
     TimerElapsed,
 }
 
+#[must_use]
 pub fn core_transport_tree() -> Vec<TransportTechnology> {
     let mut tree = file_transport_tree();
     tree.extend(ip_transport_tree());
     tree
 }
 
+#[must_use]
 pub fn file_transport_tree() -> Vec<TransportTechnology> {
     vec![
         TransportTechnology {
@@ -96,6 +98,7 @@ pub fn file_transport_tree() -> Vec<TransportTechnology> {
     ]
 }
 
+#[must_use]
 pub fn ip_transport_tree() -> Vec<TransportTechnology> {
     vec![
         TransportTechnology {
@@ -158,14 +161,15 @@ pub fn ip_transport_tree() -> Vec<TransportTechnology> {
     ]
 }
 
+#[must_use]
 pub fn depends_on(technology: &str, dependency: &str) -> bool {
     core_transport_tree()
         .iter()
         .find(|item| item.name == technology)
-        .map(|item| item.built_on.iter().any(|base| base == dependency))
-        .unwrap_or(false)
+        .is_some_and(|item| item.built_on.iter().any(|base| base == dependency))
 }
 
+#[must_use]
 pub fn family_of(technology: &str) -> Option<TransportTechnologyFamily> {
     core_transport_tree()
         .into_iter()
