@@ -40,7 +40,7 @@ impl fmt::Display for Artefact {
 
 /// Proof that the endpoint granted the claim.
 ///
-/// Carries whatever the protocol handed back — a blob lease id, an ETag, a
+/// Carries whatever the protocol handed back — a blob lease id, an `ETag`, a
 /// handle — because releasing usually needs it and only the transport that
 /// obtained it knows what it means.
 #[derive(Clone, Debug, Eq, PartialEq)]
