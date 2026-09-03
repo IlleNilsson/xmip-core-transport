@@ -4,8 +4,8 @@ use std::io::{BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 
 use crate::arrived::Arrived;
-use crate::error::{classify, protocol_error, Result};
-use crate::wire::{header, read_head, MAX_BODY};
+use crate::error::{Result, classify, protocol_error};
+use crate::wire::{MAX_BODY, header, read_head};
 
 /// What Xmip answers a caller.
 ///
@@ -63,9 +63,9 @@ fn body_length(head: &[String]) -> Result<usize> {
         return Ok(0);
     };
 
-    let length: usize = value.parse().map_err(|_| {
-        protocol_error(format!("a content-length that is not a number: {value}"))
-    })?;
+    let length: usize = value
+        .parse()
+        .map_err(|_| protocol_error(format!("a content-length that is not a number: {value}")))?;
 
     if length > MAX_BODY {
         return Err(protocol_error(format!(

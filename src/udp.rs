@@ -9,7 +9,7 @@ use std::net::UdpSocket;
 
 use crate::arrived::Arrived;
 use crate::direction::Directions;
-use crate::error::{classify, Result};
+use crate::error::{Result, classify};
 use crate::protocol::Transport;
 
 /// The largest a UDP payload can be over IPv4: 65535 less the 8-byte UDP header
@@ -75,7 +75,10 @@ mod tests {
         // to be listening before the datagram is sent. UDP drops it silently
         // otherwise, and the test would hang rather than fail.
         let socket = UdpSocket::bind("127.0.0.1:0").expect("binding");
-        let address = socket.local_addr().expect("reading the address").to_string();
+        let address = socket
+            .local_addr()
+            .expect("reading the address")
+            .to_string();
 
         let sender = std::thread::spawn(move || {
             UdpTransport::new("127.0.0.1:0")

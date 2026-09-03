@@ -18,7 +18,7 @@ use std::net::TcpListener;
 
 use crate::arrived::Arrived;
 use crate::direction::Directions;
-use crate::error::{classify, Result};
+use crate::error::{Result, classify};
 use crate::protocol::Transport;
 
 pub struct SmtpTransport {
@@ -129,8 +129,10 @@ mod tests {
 
     #[test]
     fn a_mailbox_has_no_artefact_to_claim_on_the_sending_side() {
-        assert!(SmtpTransport::sending("relay:25", "x@example.com")
-            .claims()
-            .is_none());
+        assert!(
+            SmtpTransport::sending("relay:25", "x@example.com")
+                .claims()
+                .is_none()
+        );
     }
 }

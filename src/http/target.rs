@@ -1,6 +1,6 @@
 //! Where a send is going, read out of the target string.
 
-use crate::error::{protocol_error, Result};
+use crate::error::{Result, protocol_error};
 use crate::wire::with_default_port;
 
 /// A parsed `http://` or `https://` target.
@@ -72,11 +72,15 @@ mod tests {
     #[test]
     fn a_path_is_taken_from_the_target_or_defaulted() {
         assert_eq!(
-            HttpTarget::parse("http://example.com/orders").expect("parsed").path,
+            HttpTarget::parse("http://example.com/orders")
+                .expect("parsed")
+                .path,
             "/orders"
         );
         assert_eq!(
-            HttpTarget::parse("http://example.com").expect("parsed").path,
+            HttpTarget::parse("http://example.com")
+                .expect("parsed")
+                .path,
             "/"
         );
     }
@@ -84,11 +88,15 @@ mod tests {
     #[test]
     fn the_scheme_decides_the_default_port() {
         assert_eq!(
-            HttpTarget::parse("http://example.com/x").expect("parsed").address(),
+            HttpTarget::parse("http://example.com/x")
+                .expect("parsed")
+                .address(),
             "example.com:80"
         );
         assert_eq!(
-            HttpTarget::parse("https://example.com/x").expect("parsed").address(),
+            HttpTarget::parse("https://example.com/x")
+                .expect("parsed")
+                .address(),
             "example.com:443"
         );
     }
@@ -96,7 +104,9 @@ mod tests {
     #[test]
     fn a_port_in_the_target_is_left_alone() {
         assert_eq!(
-            HttpTarget::parse("http://example.com:8080/x").expect("parsed").address(),
+            HttpTarget::parse("http://example.com:8080/x")
+                .expect("parsed")
+                .address(),
             "example.com:8080"
         );
     }

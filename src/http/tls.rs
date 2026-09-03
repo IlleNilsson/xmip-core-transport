@@ -7,7 +7,7 @@
 use std::net::TcpStream;
 use std::sync::Arc;
 
-use crate::error::{protocol_error, Result};
+use crate::error::{Result, protocol_error};
 
 /// A TLS connection ready to read and write.
 pub type Guarded = rustls::StreamOwned<rustls::ClientConnection, TcpStream>;

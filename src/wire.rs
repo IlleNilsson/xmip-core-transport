@@ -9,7 +9,7 @@
 
 use std::io::BufRead;
 
-use crate::error::{classify, protocol_error, Result};
+use crate::error::{Result, classify, protocol_error};
 
 /// The largest single Stream Xmip will read off one connection.
 pub const MAX_BODY: usize = 64 * 1024 * 1024;
@@ -110,9 +110,7 @@ pub fn header<'a>(lines: &'a [String], name: &str) -> Option<&'a str> {
     lines.iter().skip(1).find_map(|line| {
         let (key, value) = line.split_once(':')?;
 
-        key.trim()
-            .eq_ignore_ascii_case(name)
-            .then(|| value.trim())
+        key.trim().eq_ignore_ascii_case(name).then(|| value.trim())
     })
 }
 
@@ -123,7 +121,10 @@ mod tests {
     #[test]
     fn a_default_port_is_added_only_when_one_is_missing() {
         assert_eq!(with_default_port("example.com", 80), "example.com:80");
-        assert_eq!(with_default_port("example.com:8080", 80), "example.com:8080");
+        assert_eq!(
+            with_default_port("example.com:8080", 80),
+            "example.com:8080"
+        );
     }
 
     #[test]

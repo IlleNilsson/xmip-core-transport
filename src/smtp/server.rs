@@ -4,7 +4,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
 
 use crate::arrived::Arrived;
-use crate::error::{classify, Result};
+use crate::error::{Result, classify};
 use crate::wire::trim_eol;
 
 use super::session::{read_data, say};

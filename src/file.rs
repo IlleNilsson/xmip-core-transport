@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 use crate::arrived::Arrived;
 use crate::direction::Directions;
-use crate::error::{classify, Result};
+use crate::error::{Result, classify};
 use crate::protocol::Transport;
 
 pub struct FileTransport {
@@ -116,10 +116,12 @@ mod tests {
     fn file_receive_is_empty_when_the_directory_is_absent() {
         let transport = FileTransport::new(std::env::temp_dir().join("xmip-definitely-not-here"));
 
-        assert!(transport
-            .receive()
-            .expect("absent directory is not a failure")
-            .is_empty());
+        assert!(
+            transport
+                .receive()
+                .expect("absent directory is not a failure")
+                .is_empty()
+        );
     }
 
     #[test]
@@ -127,7 +129,9 @@ mod tests {
         let dir = scratch("file-round-trip");
         let transport = FileTransport::new(&dir);
 
-        transport.send("order-1001.edi", b"ISA*00*").expect("sending");
+        transport
+            .send("order-1001.edi", b"ISA*00*")
+            .expect("sending");
         let arrived = transport.receive().expect("receiving");
 
         assert_eq!(arrived.len(), 1);
