@@ -62,7 +62,12 @@ pub fn classify(context: &str, error: &io::Error) -> TransportError {
 
     let retryable = matches!(
         error.kind(),
-        Interrupted | WouldBlock | TimedOut | ConnectionReset | ConnectionAborted | ConnectionRefused
+        Interrupted
+            | WouldBlock
+            | TimedOut
+            | ConnectionReset
+            | ConnectionAborted
+            | ConnectionRefused
     );
 
     TransportError {

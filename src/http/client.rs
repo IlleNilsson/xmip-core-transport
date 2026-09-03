@@ -2,7 +2,7 @@
 
 use std::io::{BufRead, BufReader, Read, Write};
 
-use crate::error::{classify, protocol_error, Result, TransportError};
+use crate::error::{Result, TransportError, classify, protocol_error};
 
 use super::target::HttpTarget;
 
@@ -16,7 +16,11 @@ use super::target::HttpTarget;
 ///
 /// Where the connection failed, the status line was unreadable, or the server
 /// answered outside the 2xx range.
-pub fn exchange<S: Read + Write>(mut stream: S, target: &HttpTarget<'_>, bytes: &[u8]) -> Result<()> {
+pub fn exchange<S: Read + Write>(
+    mut stream: S,
+    target: &HttpTarget<'_>,
+    bytes: &[u8],
+) -> Result<()> {
     write_request(&mut stream, target, bytes)?;
 
     let code = read_status(&mut BufReader::new(stream))?;

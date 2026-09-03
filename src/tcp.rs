@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use crate::arrived::Arrived;
 use crate::direction::Directions;
-use crate::error::{classify, Result};
+use crate::error::{Result, classify};
 use crate::protocol::Transport;
 
 pub struct TcpTransport {

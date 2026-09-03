@@ -3,7 +3,7 @@
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpStream;
 
-use crate::error::{classify, protocol_error, Result};
+use crate::error::{Result, classify, protocol_error};
 use crate::wire::with_default_port;
 
 use super::session::{expect, read_reply, say, write_stuffed};
@@ -113,11 +113,15 @@ mod tests {
     #[test]
     fn a_mailto_prefix_is_optional() {
         assert_eq!(
-            Recipient::parse("mailto:orders@example.com").expect("parsed").mailbox(),
+            Recipient::parse("mailto:orders@example.com")
+                .expect("parsed")
+                .mailbox(),
             "orders@example.com"
         );
         assert_eq!(
-            Recipient::parse("orders@example.com").expect("parsed").mailbox(),
+            Recipient::parse("orders@example.com")
+                .expect("parsed")
+                .mailbox(),
             "orders@example.com"
         );
     }

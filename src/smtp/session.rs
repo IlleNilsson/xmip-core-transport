@@ -5,8 +5,8 @@
 
 use std::io::{BufRead, Write};
 
-use crate::error::{classify, protocol_error, Result, TransportError};
-use crate::wire::{trim_eol, MAX_BODY};
+use crate::error::{Result, TransportError, classify, protocol_error};
+use crate::wire::{MAX_BODY, trim_eol};
 
 /// Write one command or reply, terminated as the protocol requires.
 ///
@@ -194,10 +194,9 @@ mod tests {
     fn four_hundred_is_transient_and_five_hundred_is_not() {
         // Backwards from HTTP, and getting it the HTTP way round means retrying
         // a permanent rejection until retention expires.
-        let transient = expect(&mut &b"451 try later\r\n"[..], 250, "MAIL FROM")
-            .expect_err("451");
-        let permanent = expect(&mut &b"550 no such mailbox\r\n"[..], 250, "RCPT TO")
-            .expect_err("550");
+        let transient = expect(&mut &b"451 try later\r\n"[..], 250, "MAIL FROM").expect_err("451");
+        let permanent =
+            expect(&mut &b"550 no such mailbox\r\n"[..], 250, "RCPT TO").expect_err("550");
 
         assert!(transient.retryable);
         assert!(!permanent.retryable);
@@ -216,7 +215,10 @@ mod tests {
         write_stuffed(&mut written, b".hidden").expect("written");
 
         assert_eq!(written, b"..hidden\r\n");
-        assert_eq!(read_data(&mut &b"..hidden\r\n.\r\n"[..]).expect("read"), b".hidden");
+        assert_eq!(
+            read_data(&mut &b"..hidden\r\n.\r\n"[..]).expect("read"),
+            b".hidden"
+        );
     }
 
     #[test]
