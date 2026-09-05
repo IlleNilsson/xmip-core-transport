@@ -12,7 +12,7 @@ use crate::error::Result;
 /// `sftp://partner.example/out/order-1.edi`, an S3 key, a blob path, a message
 /// uid in a mailbox.
 ///
-/// **Not `xmip_core::ArtifactId`**, and the near-collision is worth the
+/// **Not `xcore::ArtifactId`**, and the near-collision is worth the
 /// sentence: an Xmip Artifact is a *configured object* — a Receive Location, a
 /// Send Port — and this is a thing sitting at the far end of one. ADR-0017
 /// spelled it `ArtefactId`, one letter from the other, which is how the two
