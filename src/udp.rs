@@ -6,6 +6,7 @@
 //! the two behave differently at the gate for exactly that reason.
 
 use std::net::UdpSocket;
+use std::time::Duration;
 
 use crate::arrived::Arrived;
 use crate::direction::Directions;
@@ -19,6 +20,7 @@ const MAX_DATAGRAM: usize = 65_507;
 pub struct UdpTransport {
     bind: String,
     max_datagram: usize,
+    receive_timeout: Option<Duration>,
 }
 
 impl UdpTransport {
@@ -27,7 +29,59 @@ impl UdpTransport {
         Self {
             bind: bind.into(),
             max_datagram: MAX_DATAGRAM,
+            receive_timeout: None,
         }
+    }
+
+    /// Give up waiting for a datagram that never comes. UDP has no delivery
+    /// guarantee, so a receiver that does not time out waits forever when the
+    /// datagram is dropped.
+    #[must_use]
+    pub const fn timing_out_after(mut self, timeout: Duration) -> Self {
+        self.receive_timeout = Some(timeout);
+        self
+    }
+
+    /// Bind and report the address actually assigned.
+    ///
+    /// Binding to port 0 lets the operating system choose. A datagram receiver
+    /// must be bound before the sender fires, or the datagram is dropped
+    /// silently — so a caller binds, learns the address, starts the sender, then
+    /// calls [`receive_one`](Self::receive_one). This mirrors `TcpTransport`.
+    ///
+    /// # Errors
+    ///
+    /// Where the address is taken, malformed, or the read timeout cannot be set.
+    pub fn bind(&self) -> Result<(UdpSocket, String)> {
+        let socket = UdpSocket::bind(&self.bind).map_err(|e| classify("binding the socket", &e))?;
+
+        if let Some(timeout) = self.receive_timeout {
+            socket
+                .set_read_timeout(Some(timeout))
+                .map_err(|e| classify("setting the read timeout", &e))?;
+        }
+
+        let local = socket
+            .local_addr()
+            .map_err(|e| classify("reading the bound address", &e))?;
+
+        Ok((socket, local.to_string()))
+    }
+
+    /// Take one datagram from an already-bound socket.
+    ///
+    /// # Errors
+    ///
+    /// Where the datagram could not be received before the timeout.
+    pub fn receive_one(&self, socket: &UdpSocket) -> Result<Arrived> {
+        let mut buffer = vec![0u8; self.max_datagram];
+        let (read, peer) = socket
+            .recv_from(&mut buffer)
+            .map_err(|e| classify("receiving a datagram", &e))?;
+
+        buffer.truncate(read);
+
+        Ok(Arrived::new(format!("udp://{peer}"), buffer))
     }
 }
 
@@ -41,16 +95,9 @@ impl Transport for UdpTransport {
     }
 
     fn receive(&self) -> Result<Vec<Arrived>> {
-        let socket = UdpSocket::bind(&self.bind).map_err(|e| classify("binding the socket", &e))?;
+        let (socket, _) = self.bind()?;
 
-        let mut buffer = vec![0u8; self.max_datagram];
-        let (read, peer) = socket
-            .recv_from(&mut buffer)
-            .map_err(|e| classify("receiving a datagram", &e))?;
-
-        buffer.truncate(read);
-
-        Ok(vec![Arrived::new(format!("udp://{peer}"), buffer)])
+        Ok(vec![self.receive_one(&socket)?])
     }
 
     fn send(&self, target: &str, bytes: &[u8]) -> Result<()> {
@@ -94,6 +141,26 @@ mod tests {
 
         assert_eq!(buffer, b"hello over udp");
         assert!(peer.to_string().starts_with("127.0.0.1:"));
+    }
+
+    #[test]
+    fn bind_reports_its_address_so_a_sender_can_aim() {
+        // The reason bind and receive_one are split: the receiver must be bound
+        // and its address known before the sender fires a datagram at it.
+        let receiver = UdpTransport::new("127.0.0.1:0").timing_out_after(Duration::from_secs(2));
+        let (socket, address) = receiver.bind().expect("binding");
+
+        let sender = std::thread::spawn(move || {
+            UdpTransport::new("127.0.0.1:0")
+                .send(&address, b"aimed over udp")
+                .expect("sending");
+        });
+
+        let arrived = receiver.receive_one(&socket).expect("receiving");
+        sender.join().expect("the sending thread panicked");
+
+        assert_eq!(arrived.bytes, b"aimed over udp");
+        assert!(arrived.origin_uri.starts_with("udp://127.0.0.1:"));
     }
 
     #[test]
