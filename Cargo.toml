@@ -39,7 +39,7 @@ default = []
 # Declared, not implied. Four `cfg(feature = "tls")` guards referenced this
 # feature while Cargo.toml did not declare it, which meant the HTTPS path could
 # never compile in and the only thing saying so was a warning.
-tls = ["dep:rustls", "dep:rustls-native-certs"]
+tls = ["dep:rustls", "dep:rustls-native-certs", "dep:rustls-pemfile"]
 
 [dependencies]
 # technology.rs and nothing else. Every protocol here is standard library only,
@@ -55,3 +55,10 @@ serde = { version = "1", features = ["derive"] }
 # 2026-08-30, because nothing built non-default features.
 rustls = { version = "0.23", features = ["ring"], optional = true }
 rustls-native-certs = { version = "0.8", optional = true }
+# Reading certificate and key PEM for the server side. Only for `tls`.
+rustls-pemfile = { version = "2", optional = true }
+
+[dev-dependencies]
+# Generating a self-signed certificate for the tls handshake tests. Test-only —
+# it never ships in the crate.
+rcgen = "0.13"
