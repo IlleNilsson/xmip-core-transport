@@ -26,7 +26,7 @@
 //!   technology.rs       what each technology is built on, and what reuses it
 //!
 //! one protocol each
-//!   file.rs  tcp.rs  udp.rs  http/  smtp/
+//!   file.rs  tcp.rs  udp.rs  http/  smtp/  websocket/
 //! ```
 //!
 //! *`technology.rs` arrived here on 2026-08-26 from the root's
@@ -34,9 +34,9 @@
 //! Declared 2026-08-27 during this split — which is also the only reason serde
 //! is a dependency.*
 //!
-//! **`architecture.toml` declares 84 transports and five are implemented.** Each
+//! **`architecture.toml` declares 84 transports and six are implemented.** Each
 //! is declared as its own repository — `xmip-core-transport-kafka` and eighty
-//! siblings. The five here are separated along that line so that lifting one out
+//! siblings. The six here are separated along that line so that lifting one out
 //! is a move rather than a rewrite: nothing above the protocol files knows which
 //! protocols exist, and no protocol file knows about another.
 
@@ -51,6 +51,7 @@ pub mod smtp;
 pub mod tcp;
 pub mod technology;
 pub mod udp;
+pub mod websocket;
 pub mod wire;
 
 pub use arrived::Arrived;
@@ -63,3 +64,4 @@ pub use protocol::Transport;
 pub use smtp::SmtpTransport;
 pub use tcp::TcpTransport;
 pub use udp::UdpTransport;
+pub use websocket::WebSocketTransport;
