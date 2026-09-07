@@ -4,6 +4,6 @@ Direction-neutral Transport contracts for moving immutable Streams between Xmip 
 
 Receive and Send own orchestration, ports, groups, and locations. Transport owns byte movement and resource claims; it does not own authentication, message representation, contract evaluation, or operation semantics.
 
-The current crate contains the common Transport boundary and initial File, TCP, UDP, HTTP, and SMTP implementations. Each technology can move into its declared child repository when it gains an independent consumer or release cadence.
+This crate is the common boundary: the `Transport` trait, `Arrived`, `Directions`, the error vocabulary, resource claims and the line-oriented wire helpers. Nothing in it names a protocol. Each transport technology is its own repository (ADR-0010) mounted directly under this one — `file`, `tcp`, `udp`, `http`, `smtp` and `websocket` today — and depends on this crate, never the reverse.
 
-Status: planned, with the common contract and initial implementations already present.
+Status: planned, with the common contract present and six technologies mounted.

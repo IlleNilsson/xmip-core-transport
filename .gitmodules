@@ -1,0 +1,18 @@
+[submodule "xmip-core-transport-file"]
+	path = file
+	url = https://github.com/IlleNilsson/xmip-core-transport-file.git
+[submodule "xmip-core-transport-tcp"]
+	path = tcp
+	url = https://github.com/IlleNilsson/xmip-core-transport-tcp.git
+[submodule "xmip-core-transport-udp"]
+	path = udp
+	url = https://github.com/IlleNilsson/xmip-core-transport-udp.git
+[submodule "xmip-core-transport-http"]
+	path = http
+	url = https://github.com/IlleNilsson/xmip-core-transport-http.git
+[submodule "xmip-core-transport-smtp"]
+	path = smtp
+	url = https://github.com/IlleNilsson/xmip-core-transport-smtp.git
+[submodule "xmip-core-transport-websocket"]
+	path = websocket
+	url = https://github.com/IlleNilsson/xmip-core-transport-websocket.git
