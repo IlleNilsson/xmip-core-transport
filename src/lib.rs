@@ -22,11 +22,8 @@
 //!   claim.rs            one holder of a collidable artefact at a time
 //!
 //! shared machinery
-//!   wire.rs             reading line-oriented protocols, used by http and smtp
+//!   wire.rs             reading line-oriented protocols, used by the http and smtp technologies
 //!   technology.rs       what each technology is built on, and what reuses it
-//!
-//! one protocol each
-//!   file.rs  tcp.rs  udp.rs  http/  smtp/  websocket/
 //! ```
 //!
 //! *`technology.rs` arrived here on 2026-08-26 from the root's
@@ -34,34 +31,22 @@
 //! Declared 2026-08-27 during this split — which is also the only reason serde
 //! is a dependency.*
 //!
-//! **`architecture.toml` declares 84 transports and six are implemented.** Each
-//! is declared as its own repository — `xmip-core-transport-kafka` and eighty
-//! siblings. The six here are separated along that line so that lifting one out
-//! is a move rather than a rewrite: nothing above the protocol files knows which
-//! protocols exist, and no protocol file knows about another.
+//! **Nothing here names a protocol.** Each transport technology is its own
+//! repository (ADR-0010 decision 3), mounted directly under this one — `file`,
+//! `tcp`, `udp`, `http`, `smtp`, `websocket` today — and depends on this crate,
+//! never the reverse. The six lived in `src/` from 2026-08-27 until 2026-09-07,
+//! kept apart so that lifting them out was a move rather than a rewrite; it was.
 
 pub mod arrived;
 pub mod claim;
 pub mod direction;
 pub mod error;
-pub mod file;
-pub mod http;
 pub mod protocol;
-pub mod smtp;
-pub mod tcp;
 pub mod technology;
-pub mod udp;
-pub mod websocket;
 pub mod wire;
 
 pub use arrived::Arrived;
 pub use claim::{Artefact, Claimed, NoNativeClaim, ResourceClaim};
 pub use direction::Directions;
 pub use error::{Result, TransportError};
-pub use file::FileTransport;
-pub use http::HttpTransport;
 pub use protocol::Transport;
-pub use smtp::SmtpTransport;
-pub use tcp::TcpTransport;
-pub use udp::UdpTransport;
-pub use websocket::WebSocketTransport;
