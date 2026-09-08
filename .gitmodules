@@ -31,3 +31,42 @@
 [submodule "xmip-core-transport-can-bus"]
 	path = can-bus
 	url = https://github.com/IlleNilsson/xmip-core-transport-can-bus.git
+[submodule "mqtt"]
+	path = mqtt
+	url = https://github.com/IlleNilsson/xmip-core-transport-mqtt.git
+[submodule "nats"]
+	path = nats
+	url = https://github.com/IlleNilsson/xmip-core-transport-nats.git
+[submodule "syslog"]
+	path = syslog
+	url = https://github.com/IlleNilsson/xmip-core-transport-syslog.git
+[submodule "coap"]
+	path = coap
+	url = https://github.com/IlleNilsson/xmip-core-transport-coap.git
+[submodule "ftp"]
+	path = ftp
+	url = https://github.com/IlleNilsson/xmip-core-transport-ftp.git
+[submodule "pop3"]
+	path = pop3
+	url = https://github.com/IlleNilsson/xmip-core-transport-pop3.git
+[submodule "redis-streams"]
+	path = redis-streams
+	url = https://github.com/IlleNilsson/xmip-core-transport-redis-streams.git
+[submodule "dns"]
+	path = dns
+	url = https://github.com/IlleNilsson/xmip-core-transport-dns.git
+[submodule "imap"]
+	path = imap
+	url = https://github.com/IlleNilsson/xmip-core-transport-imap.git
+[submodule "amqp"]
+	path = amqp
+	url = https://github.com/IlleNilsson/xmip-core-transport-amqp.git
+[submodule "iec-60870-5-104"]
+	path = iec-60870-5-104
+	url = https://github.com/IlleNilsson/xmip-core-transport-iec-60870-5-104.git
+[submodule "dnp3"]
+	path = dnp3
+	url = https://github.com/IlleNilsson/xmip-core-transport-dnp3.git
+[submodule "kafka"]
+	path = kafka
+	url = https://github.com/IlleNilsson/xmip-core-transport-kafka.git
