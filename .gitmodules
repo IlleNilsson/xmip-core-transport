@@ -19,3 +19,15 @@
 [submodule "xmip-core-transport-mllp"]
 	path = mllp
 	url = https://github.com/IlleNilsson/xmip-core-transport-mllp.git
+[submodule "xmip-core-transport-modbus"]
+	path = modbus
+	url = https://github.com/IlleNilsson/xmip-core-transport-modbus.git
+[submodule "xmip-core-transport-bacnet"]
+	path = bacnet
+	url = https://github.com/IlleNilsson/xmip-core-transport-bacnet.git
+[submodule "xmip-core-transport-serial"]
+	path = serial
+	url = https://github.com/IlleNilsson/xmip-core-transport-serial.git
+[submodule "xmip-core-transport-can-bus"]
+	path = can-bus
+	url = https://github.com/IlleNilsson/xmip-core-transport-can-bus.git
