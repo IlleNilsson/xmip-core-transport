@@ -16,3 +16,6 @@
 [submodule "xmip-core-transport-websocket"]
 	path = websocket
 	url = https://github.com/IlleNilsson/xmip-core-transport-websocket.git
+[submodule "xmip-core-transport-mllp"]
+	path = mllp
+	url = https://github.com/IlleNilsson/xmip-core-transport-mllp.git
