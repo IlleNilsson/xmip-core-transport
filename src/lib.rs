@@ -23,6 +23,7 @@
 //!
 //! shared machinery
 //!   wire.rs             reading line-oriented protocols, used by the http and smtp technologies
+//!   socket.rs           binding, accepting, connecting and splitting sockets, used by every one
 //!   technology.rs       what each technology is built on, and what reuses it
 //! ```
 //!
@@ -42,6 +43,7 @@ pub mod claim;
 pub mod direction;
 pub mod error;
 pub mod protocol;
+pub mod socket;
 pub mod technology;
 pub mod wire;
 
