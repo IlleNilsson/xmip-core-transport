@@ -46,6 +46,7 @@ pub mod protocol;
 pub mod socket;
 pub mod technology;
 pub mod wire;
+pub mod xml;
 
 pub use arrived::Arrived;
 pub use claim::{Artefact, Claimed, NoNativeClaim, ResourceClaim};
