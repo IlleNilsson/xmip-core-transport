@@ -70,3 +70,51 @@
 [submodule "kafka"]
 	path = kafka
 	url = https://github.com/IlleNilsson/xmip-core-transport-kafka.git
+[submodule "cotp"]
+	path = cotp
+	url = https://github.com/IlleNilsson/xmip-core-transport-cotp.git
+[submodule "s7comm"]
+	path = s7comm
+	url = https://github.com/IlleNilsson/xmip-core-transport-s7comm.git
+[submodule "secs-gem"]
+	path = secs-gem
+	url = https://github.com/IlleNilsson/xmip-core-transport-secs-gem.git
+[submodule "snmp"]
+	path = snmp
+	url = https://github.com/IlleNilsson/xmip-core-transport-snmp.git
+[submodule "ssdp"]
+	path = ssdp
+	url = https://github.com/IlleNilsson/xmip-core-transport-ssdp.git
+[submodule "mdns"]
+	path = mdns
+	url = https://github.com/IlleNilsson/xmip-core-transport-mdns.git
+[submodule "dhcp"]
+	path = dhcp
+	url = https://github.com/IlleNilsson/xmip-core-transport-dhcp.git
+[submodule "webdav"]
+	path = webdav
+	url = https://github.com/IlleNilsson/xmip-core-transport-webdav.git
+[submodule "activemq"]
+	path = activemq
+	url = https://github.com/IlleNilsson/xmip-core-transport-activemq.git
+[submodule "rabbitmq"]
+	path = rabbitmq
+	url = https://github.com/IlleNilsson/xmip-core-transport-rabbitmq.git
+[submodule "nats-jetstream"]
+	path = nats-jetstream
+	url = https://github.com/IlleNilsson/xmip-core-transport-nats-jetstream.git
+[submodule "redpanda"]
+	path = redpanda
+	url = https://github.com/IlleNilsson/xmip-core-transport-redpanda.git
+[submodule "postgresql"]
+	path = postgresql
+	url = https://github.com/IlleNilsson/xmip-core-transport-postgresql.git
+[submodule "s3"]
+	path = s3
+	url = https://github.com/IlleNilsson/xmip-core-transport-s3.git
+[submodule "azure-blob"]
+	path = azure-blob
+	url = https://github.com/IlleNilsson/xmip-core-transport-azure-blob.git
+[submodule "google-cloud-storage"]
+	path = google-cloud-storage
+	url = https://github.com/IlleNilsson/xmip-core-transport-google-cloud-storage.git
