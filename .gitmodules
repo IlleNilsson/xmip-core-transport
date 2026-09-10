@@ -124,3 +124,129 @@
 [submodule "xmip-core-transport-mysql"]
 	path = mysql
 	url = https://github.com/IlleNilsson/xmip-core-transport-mysql.git
+[submodule "xmip-core-transport-as2"]
+	path = as2
+	url = https://github.com/IlleNilsson/xmip-core-transport-as2.git
+[submodule "xmip-core-transport-as4"]
+	path = as4
+	url = https://github.com/IlleNilsson/xmip-core-transport-as4.git
+[submodule "xmip-core-transport-sftp"]
+	path = sftp
+	url = https://github.com/IlleNilsson/xmip-core-transport-sftp.git
+[submodule "xmip-core-transport-aws-kinesis"]
+	path = aws-kinesis
+	url = https://github.com/IlleNilsson/xmip-core-transport-aws-kinesis.git
+[submodule "xmip-core-transport-bluetooth"]
+	path = bluetooth
+	url = https://github.com/IlleNilsson/xmip-core-transport-bluetooth.git
+[submodule "xmip-core-transport-canopen"]
+	path = canopen
+	url = https://github.com/IlleNilsson/xmip-core-transport-canopen.git
+[submodule "xmip-core-transport-dds"]
+	path = dds
+	url = https://github.com/IlleNilsson/xmip-core-transport-dds.git
+[submodule "xmip-core-transport-dicom"]
+	path = dicom
+	url = https://github.com/IlleNilsson/xmip-core-transport-dicom.git
+[submodule "xmip-core-transport-ethercat"]
+	path = ethercat
+	url = https://github.com/IlleNilsson/xmip-core-transport-ethercat.git
+[submodule "xmip-core-transport-ethernet"]
+	path = ethernet
+	url = https://github.com/IlleNilsson/xmip-core-transport-ethernet.git
+[submodule "xmip-core-transport-ethernet-ip"]
+	path = ethernet-ip
+	url = https://github.com/IlleNilsson/xmip-core-transport-ethernet-ip.git
+[submodule "xmip-core-transport-hart"]
+	path = hart
+	url = https://github.com/IlleNilsson/xmip-core-transport-hart.git
+[submodule "xmip-core-transport-iec-61850"]
+	path = iec-61850
+	url = https://github.com/IlleNilsson/xmip-core-transport-iec-61850.git
+[submodule "xmip-core-transport-io-link"]
+	path = io-link
+	url = https://github.com/IlleNilsson/xmip-core-transport-io-link.git
+[submodule "xmip-core-transport-iso-tp"]
+	path = iso-tp
+	url = https://github.com/IlleNilsson/xmip-core-transport-iso-tp.git
+[submodule "xmip-core-transport-j1939"]
+	path = j1939
+	url = https://github.com/IlleNilsson/xmip-core-transport-j1939.git
+[submodule "xmip-core-transport-knx"]
+	path = knx
+	url = https://github.com/IlleNilsson/xmip-core-transport-knx.git
+[submodule "xmip-core-transport-lorawan"]
+	path = lorawan
+	url = https://github.com/IlleNilsson/xmip-core-transport-lorawan.git
+[submodule "xmip-core-transport-m-bus"]
+	path = m-bus
+	url = https://github.com/IlleNilsson/xmip-core-transport-m-bus.git
+[submodule "xmip-core-transport-obd-ii"]
+	path = obd-ii
+	url = https://github.com/IlleNilsson/xmip-core-transport-obd-ii.git
+[submodule "xmip-core-transport-peppol"]
+	path = peppol
+	url = https://github.com/IlleNilsson/xmip-core-transport-peppol.git
+[submodule "xmip-core-transport-profinet"]
+	path = profinet
+	url = https://github.com/IlleNilsson/xmip-core-transport-profinet.git
+[submodule "xmip-core-transport-uds"]
+	path = uds
+	url = https://github.com/IlleNilsson/xmip-core-transport-uds.git
+[submodule "xmip-core-transport-wireless-hart"]
+	path = wireless-hart
+	url = https://github.com/IlleNilsson/xmip-core-transport-wireless-hart.git
+[submodule "xmip-core-transport-wireless-m-bus"]
+	path = wireless-m-bus
+	url = https://github.com/IlleNilsson/xmip-core-transport-wireless-m-bus.git
+[submodule "xmip-core-transport-thread"]
+	path = thread
+	url = https://github.com/IlleNilsson/xmip-core-transport-thread.git
+[submodule "xmip-core-transport-zigbee"]
+	path = zigbee
+	url = https://github.com/IlleNilsson/xmip-core-transport-zigbee.git
+[submodule "xmip-core-transport-aws-sns"]
+	path = aws-sns
+	url = https://github.com/IlleNilsson/xmip-core-transport-aws-sns.git
+[submodule "xmip-core-transport-aws-sqs"]
+	path = aws-sqs
+	url = https://github.com/IlleNilsson/xmip-core-transport-aws-sqs.git
+[submodule "xmip-core-transport-azure-event-grid"]
+	path = azure-event-grid
+	url = https://github.com/IlleNilsson/xmip-core-transport-azure-event-grid.git
+[submodule "xmip-core-transport-azure-event-hubs"]
+	path = azure-event-hubs
+	url = https://github.com/IlleNilsson/xmip-core-transport-azure-event-hubs.git
+[submodule "xmip-core-transport-azure-service-bus"]
+	path = azure-service-bus
+	url = https://github.com/IlleNilsson/xmip-core-transport-azure-service-bus.git
+[submodule "xmip-core-transport-google-pub-sub"]
+	path = google-pub-sub
+	url = https://github.com/IlleNilsson/xmip-core-transport-google-pub-sub.git
+[submodule "xmip-core-transport-ibm-mq"]
+	path = ibm-mq
+	url = https://github.com/IlleNilsson/xmip-core-transport-ibm-mq.git
+[submodule "xmip-core-transport-msmq"]
+	path = msmq
+	url = https://github.com/IlleNilsson/xmip-core-transport-msmq.git
+[submodule "xmip-core-transport-named-pipe"]
+	path = named-pipe
+	url = https://github.com/IlleNilsson/xmip-core-transport-named-pipe.git
+[submodule "xmip-core-transport-nfs"]
+	path = nfs
+	url = https://github.com/IlleNilsson/xmip-core-transport-nfs.git
+[submodule "xmip-core-transport-opc-ua"]
+	path = opc-ua
+	url = https://github.com/IlleNilsson/xmip-core-transport-opc-ua.git
+[submodule "xmip-core-transport-oracle"]
+	path = oracle
+	url = https://github.com/IlleNilsson/xmip-core-transport-oracle.git
+[submodule "xmip-core-transport-smb"]
+	path = smb
+	url = https://github.com/IlleNilsson/xmip-core-transport-smb.git
+[submodule "xmip-core-transport-sqlite"]
+	path = sqlite
+	url = https://github.com/IlleNilsson/xmip-core-transport-sqlite.git
+[submodule "xmip-core-transport-unix-socket"]
+	path = unix-socket
+	url = https://github.com/IlleNilsson/xmip-core-transport-unix-socket.git
