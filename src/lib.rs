@@ -44,6 +44,7 @@ pub mod direction;
 pub mod error;
 pub mod protocol;
 pub mod socket;
+pub mod stuffed;
 pub mod technology;
 pub mod wire;
 pub mod xml;
