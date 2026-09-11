@@ -20,6 +20,8 @@
 //!   arrived.rs          one Stream, and where it came from
 //!   error.rs            failure, and whether saying it again would help
 //!   claim.rs            one holder of a collidable artefact at a time
+//!   loopback.rs         a transport that is both ends of one exchange, with its
+//!                       ceiling and refusals; what the Playground drives (ADR-0051)
 //!
 //! shared machinery
 //!   wire.rs             reading line-oriented protocols, used by the http and smtp technologies
@@ -42,6 +44,7 @@ pub mod arrived;
 pub mod claim;
 pub mod direction;
 pub mod error;
+pub mod loopback;
 pub mod protocol;
 pub mod socket;
 pub mod stuffed;
@@ -53,4 +56,5 @@ pub use arrived::Arrived;
 pub use claim::{Artefact, Claimed, NoNativeClaim, ResourceClaim};
 pub use direction::Directions;
 pub use error::{Result, TransportError};
+pub use loopback::{FarEnd, LOOPBACK_TIMEOUT, Loopback};
 pub use protocol::Transport;
