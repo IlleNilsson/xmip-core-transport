@@ -65,6 +65,14 @@ pub trait Loopback: Transport + Send + Sync {
         None
     }
 
+    /// Why this machine cannot stand both ends — an OS object it lacks, a
+    /// privilege it does not grant — or `None` when it can. Not a failure:
+    /// whoever drives the round judges it one-sided and says why, rather
+    /// than red for a fact about the machine.
+    fn unavailable(&self) -> Option<String> {
+        None
+    }
+
     /// Stand up the far end and learn where it listens.
     ///
     /// # Errors
