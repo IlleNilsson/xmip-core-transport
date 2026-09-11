@@ -10,7 +10,8 @@ repository = "https://github.com/IlleNilsson/xmip-core-transport"
 description = "Xmip Transport capability: the direction-neutral Transport trait, its error vocabulary and the wire helpers every transport technology builds on."
 
 [lib]
-path = "src/lib.rs"
+# A host crate: the technologies mount beside this source (ADR-0049).
+path = ".src/lib.rs"
 
 [lints.rust]
 unsafe_code = "forbid"
