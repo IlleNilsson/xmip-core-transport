@@ -17,7 +17,7 @@ path = ".src/lib.rs"
 unsafe_code = "forbid"
 
 [lints.clippy]
-# Warned, never denied. docs/governance/rust-style.md section 3: a function
+# Warned, never denied. doc/governance/rust-style.md section 3: a function
 # length gate was tried in this estate's PowerShell and produced a sixteen-entry
 # waiver list while catching nothing. The number worth reading is branches, and
 # clippy prints both.
