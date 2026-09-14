@@ -8,7 +8,7 @@
 //! in the technology; what it takes to have one is here.
 
 use std::io::BufReader;
-use std::net::{SocketAddr, TcpListener, TcpStream, UdpSocket};
+use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpListener, TcpStream, UdpSocket};
 use std::time::Duration;
 
 use crate::error::{Result, classify};
@@ -95,6 +95,37 @@ pub fn bind_udp(bind: &str, timeout: Option<Duration>) -> Result<(UdpSocket, Str
     Ok((socket, local.to_string()))
 }
 
+/// The group and the `0.0.0.0:port` to bind for it, where `bind` is a
+/// multicast address; `None` where it is a unicast one.
+#[must_use]
+pub fn multicast_group(bind: &str) -> Option<(Ipv4Addr, String)> {
+    let address: SocketAddrV4 = bind.parse().ok()?;
+    address
+        .ip()
+        .is_multicast()
+        .then(|| (*address.ip(), format!("0.0.0.0:{}", address.port())))
+}
+
+/// Bind a datagram socket at `bind` with `timeout` on its receives, and
+/// where `bind` is a multicast address bind its port on every interface
+/// and join the group. mDNS and SSDP both live on a group and both wrote
+/// this before 2026-09-14 (ADR-0044); a test binds `127.0.0.1:0` and
+/// never joins.
+///
+/// # Errors
+/// Where the address is taken, malformed, or not permitted, or the group
+/// could not be joined.
+pub fn bind_multicast(bind: &str, timeout: Option<Duration>) -> Result<(UdpSocket, String)> {
+    let Some((group, port)) = multicast_group(bind) else {
+        return bind_udp(bind, timeout);
+    };
+    let (socket, local) = bind_udp(&port, timeout)?;
+    socket
+        .join_multicast_v4(&group, &Ipv4Addr::UNSPECIFIED)
+        .map_err(|e| classify("joining the group", &e))?;
+    Ok((socket, local))
+}
+
 /// `scheme://authority/path` split into its authority and path, where
 /// `target` opens with `scheme://`; `None` where it does not, so the caller
 /// falls back to what it was configured with.
@@ -147,6 +178,17 @@ mod tests {
         assert!(!address.ends_with(":0"));
         let mut buffer = [0u8; 8];
         assert!(socket.recv(&mut buffer).is_err(), "times out");
+    }
+
+    #[test]
+    fn a_multicast_group_is_known_and_a_unicast_bind_joins_nothing() {
+        let (group, port) = multicast_group("224.0.0.251:5353").expect("multicast");
+        assert_eq!(group, Ipv4Addr::new(224, 0, 0, 251));
+        assert_eq!(port, "0.0.0.0:5353");
+        assert!(multicast_group("127.0.0.1:5353").is_none());
+        assert!(multicast_group("nonsense").is_none());
+        let (_, address) = bind_multicast("127.0.0.1:0", None).expect("unicast");
+        assert!(address.starts_with("127.0.0.1:") && !address.ends_with(":0"));
     }
 
     #[test]

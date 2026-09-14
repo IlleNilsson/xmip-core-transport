@@ -1,12 +1,20 @@
 # Adding a transport
 
-Moved here from the estate root on 2026-09-12 (ADR-0020 clause 3: the document lives where its subject lives).
+Moved here from the estate root on 2026-09-12 (ADR-0020 clause 3: the document
+lives where its subject lives).
 
+A transport is a technology of this capability: its repository is
+`xmip-core-transport-<name>`, declared under `[xmip.core.transport.<name>]` in
+`architecture.toml`, mounted at `<name>` directly inside this repository
+(ADR-0016, amended 2026-09-07), and it depends on this crate, never the
+reverse. How a repository is named, declared, created, mounted and landed is
+the estate's and is not repeated here: `doc/architecture/repository-model.md`
+sections 2, 7, 8 and 10. What follows is what a transport adds to that.
 
-### 1. The base you implement
+## The base you implement
 
-`Transport` (`module/capability/transport/.src/protocol.rs`) — five methods,
-and nothing in it names a protocol:
+`Transport` (`.src/protocol.rs`) — five methods, and nothing in it names a
+protocol:
 
 ```rust
 pub trait Transport {
@@ -18,55 +26,33 @@ pub trait Transport {
 }
 ```
 
-Never bring a protocol name into the transport *capability* — protocol code lives
-only in its own technology repository (that is the rule that keeps the base
-protocol-agnostic).
+Never bring a protocol name into the transport *capability* — protocol code
+lives only in its own technology repository. That is the rule that keeps the
+base protocol-agnostic, and what two technologies both need goes up into this
+crate, never sideways (ADR-0044).
 
-### 2. Create the repository and module
+## The crate
 
-The repository is `xmip-core-transport-<name>`; it mounts as a submodule at
-`<name>` **directly inside the transport capability's repository** (ADR-0016,
-amended 2026-09-07), and it **depends on the capability, never the reverse**
-(`repository-model.md`).
+`Cargo.toml` names the package for the repository and depends on the
+capability, tracking `main` (ADR-0005):
 
-1. **Declare it** in `architecture.toml` under `[xmip.core.transport.<name>]`,
-   with a `maturity` (`reserved` → `planned` → `scaffolded` → `supported`).
-2. **Create the GitHub repo.** `gh repo create xmip-core-transport-<name> --public`
-   — run this yourself; the assistant is blocked from creating repositories.
-3. **Scaffold** from the working template — copy the layout of
-   `module/capability/contract/csv/` (Cargo.toml, `src/lib.rs`,
-   README, `rust-toolchain.toml`, LICENSE, tests). In `Cargo.toml`:
-   ```toml
-   [package]
-   name = "xmip-core-transport-<name>"
+```toml
+[package]
+name = "xmip-core-transport-<name>"
 
-   [dependencies]
-   transport = { package = "xmip-core-transport", git = "…", branch = "main" }
-   ```
-4. **Implement** the trait in `src/lib.rs`. Keep `receive` honest: *nothing there
-   is not an error* — an absent source returns an empty vector.
-5. **Green it:** `cargo test` and `cargo clippy --all-targets -- -D warnings`.
-
-### 3. Mount and land
-
-```bash
-# inside the transport capability repo
-git -C module/capability/transport submodule add \
-    https://github.com/<you>/xmip-core-transport-<name> <name>
-
-# from the estate root
-Import-Module ./Xmip/Xmip.psd1 -Force
-Publish-XmipChange -Message 'Add the <name> transport'
+[dependencies]
+transport = { package = "xmip-core-transport", git = "…", branch = "main" }
 ```
 
-`Publish-XmipChange` (alias `xgit`) is nesting-aware: it tests and lands the technology,
-records the gitlink in the capability, then pins the superproject — in that order.
+Implement the trait in `src/lib.rs`. Keep `receive` honest: *nothing there is
+not an error* — an absent source returns an empty vector. `cargo test` and
+`cargo clippy --all-targets -- -D warnings` pass before the change lands.
 
-### 4. Prove it
+## Prove it
 
-Add the transport to the **Playground**'s pingpong scenario (ADR-0028): one new
-`RoundTrip` adapter, and it is exercised by every content contract at once,
-timed, sized and fault-injected — not a new test, a new adapter.
-
----
-
+A transport is its own far end (ADR-0051): the technology ships the
+capability's `Loopback`, its payload ceiling and its refusals, and the
+Playground drives it through one adapter over that, by every content contract
+at once, timed, sized and fault-injected. A new transport is its own loopback
+and a line in the list, not a new scenario — ADR-0028 and
+`test/playground/README.md`.
