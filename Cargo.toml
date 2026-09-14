@@ -30,6 +30,12 @@ missing_panics_doc = "warn"
 unwrap_used = "warn"
 expect_used = "allow"
 
+[features]
+# The loopback payloads every technology's tests drive (payload.rs). A
+# technology asks for it from its dev-dependencies, so the fixtures reach
+# its tests and never a production build (ADR-0044).
+test-support = []
+
 [dependencies]
 # technology.rs and nothing else. Standard library otherwise, which is what
 # makes this crate build on every target in deployment-model.md without a

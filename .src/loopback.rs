@@ -97,7 +97,7 @@ pub trait Loopback: Transport + Send + Sync {
     /// One round: stand up the far end, send from the near end on this
     /// thread while the far end takes on another, and return what arrived.
     /// A protocol whose two ends do not need two threads — a directory, an
-    /// in-process bus — overrides this and does its round in order.
+    /// in-process bus — overrides this with [`Loopback::round_in_order`].
     ///
     /// # Errors
     /// Where either end failed, with which one.
@@ -114,6 +114,26 @@ pub trait Loopback: Transport + Send + Sync {
             .map_err(|_| protocol_error("the far end's thread panicked"))?;
         sent.map_err(|error| protocol_error(format!("send failed: {error}")))?;
         taken.map_err(|error| protocol_error(format!("take failed: {error}")))
+    }
+
+    /// One round in order on one thread: the send goes first and the take
+    /// finds what it left. For a protocol whose far end answers as the near
+    /// end sends — a bus, a line with one master, a directory, a file — so
+    /// there is nothing to wait on and two threads would only race. A
+    /// technology's `round` delegates here and says why in its own words.
+    /// Seventeen technologies each wrote this before 2026-09-14 (ADR-0044).
+    ///
+    /// # Errors
+    /// Where either end failed, or what was taken back is not what was
+    /// sent.
+    fn round_in_order(&self, payload: &[u8]) -> Result<Arrived> {
+        let far = self.far_end()?;
+        self.send_to(far.address(), payload)?;
+        let arrived = far.take_one()?;
+        if arrived.bytes != payload {
+            return Err(protocol_error("sent, but what was taken back differs"));
+        }
+        Ok(arrived)
     }
 }
 
@@ -199,6 +219,17 @@ mod tests {
         let arrived = mailbox.round(b"ping").expect("round");
         assert_eq!(arrived.bytes, b"ping");
         assert_eq!(arrived.origin_uri, "mailbox://one");
+    }
+
+    #[test]
+    fn a_round_in_order_sends_then_takes_and_checks_what_came_back() {
+        let mailbox = Mailbox(Arc::new(Mutex::new(None)));
+        let arrived = mailbox.round_in_order(b"pong").expect("round");
+        assert_eq!(arrived.bytes, b"pong");
+        let error = mailbox
+            .round_in_order(b"over the top")
+            .expect_err("refused");
+        assert!(error.message.contains("ceiling"), "{error}");
     }
 
     #[test]
