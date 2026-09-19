@@ -32,6 +32,20 @@ impl TransportError {
             retryable: false,
         }
     }
+
+    /// The same failure, said from where it was met: `"<where>: <message>"`.
+    ///
+    /// Retryability is the failure's own property and survives the wrapping.
+    /// Writing `format!("{error}")` into a new failure instead loses it — a
+    /// timeout becomes permanent, and resilience stops retrying what it
+    /// should retry — and doubles the judgement in the text, which is how it
+    /// was found: a Linux run read *(retryable) (not retryable)* on one line
+    /// (2026-09-19).
+    #[must_use]
+    pub fn at(mut self, where_met: &str) -> Self {
+        self.message = format!("{where_met}: {}", self.message);
+        self
+    }
 }
 
 impl fmt::Display for TransportError {

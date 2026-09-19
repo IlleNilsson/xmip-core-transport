@@ -112,8 +112,8 @@ pub trait Loopback: Transport + Send + Sync {
         let taken = taking
             .join()
             .map_err(|_| protocol_error("the far end's thread panicked"))?;
-        sent.map_err(|error| protocol_error(format!("send failed: {error}")))?;
-        taken.map_err(|error| protocol_error(format!("take failed: {error}")))
+        sent.map_err(|error| error.at("send failed"))?;
+        taken.map_err(|error| error.at("take failed"))
     }
 
     /// One round in order on one thread: the send goes first and the take
