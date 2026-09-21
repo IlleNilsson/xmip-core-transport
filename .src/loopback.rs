@@ -15,7 +15,6 @@
 //! 2026-09-09): one datagram carries 65 507 bytes, a mail path canonicalises
 //! line endings, an MLLP block cannot hold its own terminator.
 
-use std::net::TcpStream;
 use std::time::Duration;
 
 use crate::arrived::Arrived;
@@ -27,6 +26,11 @@ use crate::protocol::Transport;
 /// broker gone quiet. Two seconds is long enough for loopback and short
 /// enough that a matrix of hundreds of pairs stays a test.
 pub const LOOPBACK_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// How long [`Loopback::unblock`] waits to reach a far end it is only
+/// releasing. Short, because the far end gives up on its own at
+/// [`LOOPBACK_TIMEOUT`] and the poke is a courtesy that shortens the wait.
+pub const UNBLOCK_TIMEOUT: Duration = Duration::from_millis(250);
 
 /// One far end, stood up and waiting for its one exchange.
 pub trait FarEnd: Send {
@@ -90,8 +94,16 @@ pub trait Loopback: Transport + Send + Sync {
     /// is judged rather than waited on. The default pokes a listening socket
     /// with a throwaway connect, which is what every socket protocol needs and
     /// what a datagram or in-process protocol, with its own timeout, ignores.
+    ///
+    /// The poke is bounded and short. It was a bare `TcpStream::connect`
+    /// until 2026-09-21, and the case it was written for is the case it could
+    /// not survive: on a machine out of ephemeral ports the poke itself waited
+    /// on Windows' own twenty-one-second SYN schedule, so a round that failed
+    /// in milliseconds was judged twenty-three seconds later. A far end bounds
+    /// its own accept now (`socket::accept_tcp`), so the poke only has to be
+    /// quick, not certain.
     fn unblock(&self, address: &str) {
-        drop(TcpStream::connect(address));
+        drop(crate::socket::connect_tcp(address, Some(UNBLOCK_TIMEOUT)));
     }
 
     /// One round: stand up the far end, send from the near end on this

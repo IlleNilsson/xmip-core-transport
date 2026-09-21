@@ -74,5 +74,5 @@ pub use claim::{Artefact, Claimed, NoNativeClaim, ResourceClaim};
 pub use direction::Directions;
 pub use error::{Result, TransportError};
 pub use listening::{Accepting, Listening};
-pub use loopback::{FarEnd, LOOPBACK_TIMEOUT, Loopback};
+pub use loopback::{FarEnd, LOOPBACK_TIMEOUT, Loopback, UNBLOCK_TIMEOUT};
 pub use protocol::Transport;
