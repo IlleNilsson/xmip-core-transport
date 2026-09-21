@@ -7,11 +7,13 @@
 //! file existed (2026-09-08). What a protocol does *with* the socket stays
 //! in the technology; what it takes to have one is here.
 
-use std::io::BufReader;
-use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpListener, TcpStream, UdpSocket};
-use std::time::Duration;
+use std::io::{BufReader, ErrorKind};
+use std::net::{
+    Ipv4Addr, SocketAddr, SocketAddrV4, TcpListener, TcpStream, ToSocketAddrs, UdpSocket,
+};
+use std::time::{Duration, Instant};
 
-use crate::error::{Result, classify};
+use crate::error::{Result, TransportError, classify};
 
 /// Bind a listener at `bind` and report the address actually assigned —
 /// what `127.0.0.1:0` became.
@@ -26,28 +28,111 @@ pub fn bind_tcp(bind: &str) -> Result<(TcpListener, String)> {
     Ok((listener, local.to_string()))
 }
 
-/// Accept one connection with `timeout` on its reads.
+/// Accept one connection within `timeout`, with `timeout` on its reads.
+/// `None` waits forever, which is what a listening Receive Location does.
+///
+/// The wait for the connection is bounded as well as the reads. It was not
+/// until 2026-09-20, and the cost was the Playground's own test suite: a far
+/// end stood up for one exchange blocked in `accept` for good when its near
+/// end never connected, so a run that should have failed in two seconds hung
+/// with the process at zero percent and thirty-six loopback connections open.
+/// `TcpTransport::loopback` had called this the *loopback timeout on the
+/// accept* since it was written, and a read timeout is not that. A test that
+/// hangs never fails, which is the worst way for a gate to be wrong.
 ///
 /// # Errors
-/// Where the connection could not be accepted or the timeout not set.
+/// Where nothing connected within `timeout`, where the connection could not
+/// be accepted, or where the timeout could not be set.
 pub fn accept_tcp(
     listener: &TcpListener,
     timeout: Option<Duration>,
 ) -> Result<(TcpStream, SocketAddr)> {
-    let (stream, peer) = listener
-        .accept()
-        .map_err(|e| classify("accepting a connection", &e))?;
+    let (stream, peer) = accept_within(listener, timeout)?;
     settle(&stream, timeout)?;
     Ok((stream, peer))
 }
 
-/// Connect to `target` with `timeout` on the reads.
+// Polled rather than selected on: std has no accept with a deadline, and a
+// two-millisecond nap costs a thousandth of the shortest timeout anyone
+// passes while keeping this dependency-free. The listener is put back into
+// blocking mode on every way out, including the error ways, because it
+// belongs to the caller and a non-blocking listener it did not ask for would
+// fail somewhere it could not explain.
+fn accept_within(
+    listener: &TcpListener,
+    timeout: Option<Duration>,
+) -> Result<(TcpStream, SocketAddr)> {
+    let Some(timeout) = timeout else {
+        return listener
+            .accept()
+            .map_err(|e| classify("accepting a connection", &e));
+    };
+
+    listener
+        .set_nonblocking(true)
+        .map_err(|e| classify("waiting for a connection", &e))?;
+
+    let deadline = Instant::now() + timeout;
+    let accepted = loop {
+        match listener.accept() {
+            Ok(pair) => break Ok(pair),
+            Err(error) if error.kind() == ErrorKind::WouldBlock => {
+                if Instant::now() >= deadline {
+                    break Err(TransportError::retryable(format!(
+                        "nothing connected within {} ms",
+                        timeout.as_millis()
+                    ))
+                    .at("accepting a connection"));
+                }
+                std::thread::sleep(Duration::from_millis(2));
+            }
+            Err(error) => break Err(classify("accepting a connection", &error)),
+        }
+    };
+
+    listener
+        .set_nonblocking(false)
+        .map_err(|e| classify("waiting for a connection", &e))?;
+
+    let (stream, peer) = accepted?;
+
+    stream
+        .set_nonblocking(false)
+        .map_err(|e| classify("settling the accepted connection", &e))?;
+
+    Ok((stream, peer))
+}
+
+/// Connect to `target` within `timeout`, with `timeout` on the reads.
+/// `None` waits as long as the operating system does.
+///
+/// The connect is bounded as well as the reads, for the reason
+/// [`accept_tcp`] is: an unbounded wait turns a failure into a hang, and a
+/// hang has no verdict. `TcpStream::connect` waits on the operating system's
+/// own schedule — on Windows the SYN retry alone is seconds, and a machine
+/// out of ephemeral ports waits longer still with nothing to show for it.
 ///
 /// # Errors
-/// Where the peer refused or could not be reached — retryable, as a
-/// connection refused is.
+/// Where the peer refused, could not be reached within `timeout`, or the
+/// target does not resolve — retryable, as a connection refused is.
 pub fn connect_tcp(target: &str, timeout: Option<Duration>) -> Result<TcpStream> {
-    let stream = TcpStream::connect(target).map_err(|e| classify("connecting to the peer", &e))?;
+    let stream = match timeout {
+        None => TcpStream::connect(target).map_err(|e| classify("connecting to the peer", &e))?,
+        Some(within) => {
+            let address = target
+                .to_socket_addrs()
+                .map_err(|e| classify("resolving the peer", &e))?
+                .next()
+                .ok_or_else(|| {
+                    TransportError::permanent(format!("{target} names no address"))
+                        .at("connecting to the peer")
+                })?;
+
+            TcpStream::connect_timeout(&address, within)
+                .map_err(|e| classify("connecting to the peer", &e))?
+        }
+    };
+
     settle(&stream, timeout)?;
     Ok(stream)
 }
@@ -139,6 +224,46 @@ pub fn target<'a>(scheme: &str, target: &'a str) -> Option<(&'a str, &'a str)> {
 mod tests {
     use super::*;
     use std::io::{BufRead, Write};
+
+    #[test]
+    fn an_accept_nobody_answers_gives_up_within_its_timeout() {
+        // The defect this asserts hung the Playground's whole suite: a far
+        // end stood up for one exchange waited in `accept` for good when its
+        // near end never connected (2026-09-20). It must fail, and it must
+        // fail inside the time it was given rather than a moment before the
+        // heat death of the universe.
+        let (listener, _) = bind_tcp("127.0.0.1:0").expect("bind");
+        let began = Instant::now();
+        let refused = accept_tcp(&listener, Some(Duration::from_millis(200)));
+        let waited = began.elapsed();
+
+        assert!(refused.is_err(), "nothing connected, so nothing arrived");
+        assert!(
+            waited < Duration::from_secs(2),
+            "gave up after {waited:?}, which is not a timeout"
+        );
+        assert!(
+            waited >= Duration::from_millis(150),
+            "gave up after {waited:?}, before it had waited"
+        );
+    }
+
+    #[test]
+    fn a_listener_is_blocking_again_after_a_bounded_accept() {
+        // The listener is the caller's. A non-blocking one handed back would
+        // fail in whatever the caller did next, far from here.
+        let (listener, address) = bind_tcp("127.0.0.1:0").expect("bind");
+        assert!(accept_tcp(&listener, Some(Duration::from_millis(100))).is_err());
+
+        let client = std::thread::spawn(move || {
+            let mut stream = connect_tcp(&address, Some(Duration::from_secs(2))).expect("connect");
+            stream.write_all(b"after").expect("write");
+        });
+        let (stream, _) = accept_tcp(&listener, Some(Duration::from_secs(2))).expect("accept");
+
+        assert!(!stream.peer_addr().expect("peer").ip().is_unspecified());
+        client.join().expect("the client");
+    }
 
     #[test]
     fn a_bound_listener_accepts_a_settled_connection_that_splits() {
