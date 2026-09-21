@@ -64,6 +64,7 @@ fn accept_within(
 ) -> Result<(TcpStream, SocketAddr)> {
     let Some(timeout) = timeout else {
         return listener
+            // bounded: the None arm: a listening Receive Location waits as long as it runs
             .accept()
             .map_err(|e| classify("accepting a connection", &e));
     };
@@ -74,6 +75,7 @@ fn accept_within(
 
     let deadline = Instant::now() + timeout;
     let accepted = loop {
+        // bounded: polled non-blocking, inside the deadline above
         match listener.accept() {
             Ok(pair) => break Ok(pair),
             Err(error) if error.kind() == ErrorKind::WouldBlock => {
@@ -117,6 +119,7 @@ fn accept_within(
 /// target does not resolve — retryable, as a connection refused is.
 pub fn connect_tcp(target: &str, timeout: Option<Duration>) -> Result<TcpStream> {
     let stream = match timeout {
+        // bounded: the None arm: unbounded only when the caller asks for it
         None => TcpStream::connect(target).map_err(|e| classify("connecting to the peer", &e))?,
         Some(within) => {
             let address = target
