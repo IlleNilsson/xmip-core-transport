@@ -71,7 +71,8 @@ pub type Result<T> = std::result::Result<T, TransportError>;
 #[must_use]
 pub fn classify(context: &str, error: &io::Error) -> TransportError {
     use io::ErrorKind::{
-        ConnectionAborted, ConnectionRefused, ConnectionReset, Interrupted, TimedOut, WouldBlock,
+        AddrInUse, AddrNotAvailable, ConnectionAborted, ConnectionRefused, ConnectionReset,
+        Interrupted, TimedOut, WouldBlock,
     };
 
     let retryable = matches!(
@@ -82,12 +83,36 @@ pub fn classify(context: &str, error: &io::Error) -> TransportError {
             | ConnectionReset
             | ConnectionAborted
             | ConnectionRefused
+            | AddrInUse
+            | AddrNotAvailable
     );
 
     TransportError {
-        message: format!("{context}: {error}"),
+        message: format!("{context}: {}", said(error)),
         retryable,
     }
+}
+
+/// What an operating system said, in the estate's words where its own are
+/// unhelpful.
+///
+/// One case so far, and it earned itself: Windows answers a machine with no
+/// ephemeral port left with *Only one usage of each socket address
+/// (protocol/network address/port) is normally permitted*, which names
+/// neither the resource nor the wait. It cost a day to read, because the
+/// Playground exhausted the range and the message read as a bind collision
+/// (2026-09-21). A raw TCP Stream is one connection (`xmip-core-transport-tcp`
+/// README), so a node sending at volume over unframed TCP spends one local
+/// port per Stream and the operating system holds it for minutes afterwards.
+fn said(error: &io::Error) -> String {
+    if error.kind() == io::ErrorKind::AddrInUse {
+        return format!(
+            "no local port was free — the machine's ephemeral range is spent \
+             and ports return as their close-wait expires ({error})"
+        );
+    }
+
+    error.to_string()
 }
 
 /// A peer that broke the protocol. Saying it again will not help.
@@ -112,6 +137,25 @@ mod tests {
     #[test]
     fn a_refused_connection_is_retryable() {
         assert!(classify("connecting", &io_error(io::ErrorKind::ConnectionRefused)).retryable);
+    }
+
+    #[test]
+    fn a_machine_out_of_ports_is_retryable_and_says_so_in_words() {
+        // It was permanent until 2026-09-21, which is backwards: a spent
+        // ephemeral range is the most retryable condition there is, since the
+        // ports come back on their own. And Windows' own words for it name
+        // neither the resource nor the wait, which cost a day of reading it
+        // as a bind collision.
+        let met = classify(
+            "connecting to the peer",
+            &io_error(io::ErrorKind::AddrInUse),
+        );
+
+        assert!(met.retryable, "the ports come back");
+        assert!(
+            met.message.contains("no local port was free"),
+            "an operator is told what ran out: {met}"
+        );
     }
 
     #[test]
