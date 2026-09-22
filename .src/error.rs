@@ -115,6 +115,13 @@ fn said(error: &io::Error) -> String {
     error.to_string()
 }
 
+/// Text that is not the encoding it claims: a peer that broke the protocol.
+impl From<codec::CodecError> for TransportError {
+    fn from(error: codec::CodecError) -> Self {
+        Self::permanent(error.message)
+    }
+}
+
 /// X.690 that is not what it says it is: a peer that broke the protocol.
 impl From<asn1::Asn1Error> for TransportError {
     fn from(error: asn1::Asn1Error) -> Self {
