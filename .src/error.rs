@@ -115,6 +115,13 @@ fn said(error: &io::Error) -> String {
     error.to_string()
 }
 
+/// X.690 that is not what it says it is: a peer that broke the protocol.
+impl From<asn1::Asn1Error> for TransportError {
+    fn from(error: asn1::Asn1Error) -> Self {
+        Self::permanent(error.message)
+    }
+}
+
 /// A peer that broke the protocol. Saying it again will not help.
 #[must_use]
 pub fn protocol_error(message: impl Into<String>) -> TransportError {
