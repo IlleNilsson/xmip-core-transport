@@ -42,6 +42,9 @@ test-support = []
 # cross-compilation story. TLS went with the http technology on 2026-09-07,
 # where the `tls` feature now lives.
 serde = { version = "1", features = ["derive"] }
+# XML character data, escaped and unescaped as every reader in the estate
+# does it.
+codec = { package = "xmip-core-codec", git = "https://github.com/IlleNilsson/xmip-core-codec", branch = "main" }
 # X.690, which SNMP, MMS and GOOSE frame with, re-exported as `ber` so a
 # technology names it through this crate as it did when the reader lived here.
 asn1 = { package = "xmip-core-asn1", git = "https://github.com/IlleNilsson/xmip-core-asn1", branch = "main" }
