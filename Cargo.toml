@@ -31,6 +31,9 @@ unwrap_used = "warn"
 expect_used = "allow"
 
 [features]
+# The estate's TLS, for the technologies that guard a connection.
+tls = ["dep:tls"]
+
 # The loopback payloads every technology's tests drive (payload.rs). A
 # technology asks for it from its dev-dependencies, so the fixtures reach
 # its tests and never a production build (ADR-0044).
@@ -39,8 +42,9 @@ test-support = []
 [dependencies]
 # technology.rs and nothing else. Standard library otherwise, which is what
 # makes this crate build on every target in deployment-model.md without a
-# cross-compilation story. TLS went with the http technology on 2026-09-07,
-# where the `tls` feature now lives.
+# cross-compilation story. TLS is xmip-core-tls since 2026-09-23, taken here
+# only for the conversion a technology needs, and only under this crate's own
+# tls feature.
 serde = { version = "1", features = ["derive"] }
 # XML character data, escaped and unescaped as every reader in the estate
 # does it.
@@ -48,3 +52,6 @@ codec = { package = "xmip-core-codec", git = "https://github.com/IlleNilsson/xmi
 # X.690, which SNMP, MMS and GOOSE frame with, re-exported as `ber` so a
 # technology names it through this crate as it did when the reader lived here.
 asn1 = { package = "xmip-core-asn1", git = "https://github.com/IlleNilsson/xmip-core-asn1", branch = "main" }
+# TLS, for the one conversion a technology needs to write `?`: optional, so a
+# build without it carries no TLS stack.
+tls = { package = "xmip-core-tls", git = "https://github.com/IlleNilsson/xmip-core-tls", branch = "main", optional = true }
