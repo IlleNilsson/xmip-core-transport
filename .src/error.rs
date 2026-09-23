@@ -115,6 +115,15 @@ fn said(error: &io::Error) -> String {
     error.to_string()
 }
 
+/// A connection that could not be guarded: permanent, because a certificate
+/// or a trust store does not fix itself between attempts.
+#[cfg(feature = "tls")]
+impl From<tls::TlsError> for TransportError {
+    fn from(error: tls::TlsError) -> Self {
+        Self::permanent(error.message)
+    }
+}
+
 /// Text that is not the encoding it claims: a peer that broke the protocol.
 impl From<codec::CodecError> for TransportError {
     fn from(error: codec::CodecError) -> Self {
