@@ -1,7 +1,7 @@
 //! X.690 basic encoding rules, the tag-length-value every ASN.1 protocol
 //! frames with. MMS, GOOSE and SNMP say what a tag means in their own
 //! crates; the reader and writer they share lived here from 2026-09-14
-//! (ADR-0044) and in `xmip-core-asn1` since 2026-09-22, where the Kerberos,
+//! (ADR-0044) and in `xmip-core-library-asn1` since 2026-09-22, where the Kerberos,
 //! LDAP and X.509 technologies read the same bytes. Named here as `ber` so a
 //! transport technology reaches it through its parent, and a failure turns
 //! into a protocol error with `?`.

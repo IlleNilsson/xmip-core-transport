@@ -7,7 +7,7 @@
 //! and does not read XML here. Each object-store transport carried this
 //! file until 2026-09-09; it moved up to the capability so a technology
 //! shares it rather than copies it (ADR-0044). The entities the text
-//! travels with are `xmip-core-codec`'s, which every XML reader in the
+//! travels with are `xmip-core-library-codec`'s, which every XML reader in the
 //! estate unescapes with since 2026-09-22.
 
 use crate::error::Result;
