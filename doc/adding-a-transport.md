@@ -55,4 +55,4 @@ capability's `Loopback`, its payload ceiling and its refusals, and the
 Playground drives it through one adapter over that, by every content contract
 at once, timed, sized and fault-injected. A new transport is its own loopback
 and a line in the list, not a new scenario — ADR-0028 and
-`test/playground/README.md`.
+`test/core/playground/README.md`.
