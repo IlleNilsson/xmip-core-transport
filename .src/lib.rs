@@ -59,6 +59,7 @@ pub mod direction;
 pub mod error;
 pub mod hex;
 pub mod label;
+pub mod line;
 pub mod listening;
 pub mod loopback;
 #[cfg(any(test, feature = "test-support"))]
