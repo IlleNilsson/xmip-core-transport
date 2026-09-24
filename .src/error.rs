@@ -153,6 +153,14 @@ mod tests {
     }
 
     #[test]
+    fn a_malformed_x690_element_is_a_permanent_protocol_error() {
+        let read_one = |bytes: &[u8]| -> Result<u8> { Ok(asn1::read(bytes)?.0) };
+        let error = read_one(&[0x04, 0x05, 1]).expect_err("past the end");
+        assert!(!error.retryable);
+        assert!(error.message.contains("says 5 bytes"), "{}", error.message);
+    }
+
+    #[test]
     fn a_missing_file_is_not_retryable() {
         assert!(!classify("reading", &io_error(io::ErrorKind::NotFound)).retryable);
     }

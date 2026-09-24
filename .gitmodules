@@ -250,3 +250,9 @@
 [submodule "xmip-core-transport-unix-socket"]
 	path = unix-socket
 	url = https://github.com/IlleNilsson/xmip-core-transport-unix-socket.git
+[submodule "xmip-core-transport-aws"]
+	path = aws
+	url = https://github.com/IlleNilsson/xmip-core-transport-aws.git
+[submodule "xmip-core-transport-azure"]
+	path = azure
+	url = https://github.com/IlleNilsson/xmip-core-transport-azure.git
