@@ -4,9 +4,10 @@
 //! the one fixed table a session answers SELECTs from; and what can be a
 //! text column at all.
 //!
-//! The quoting, the bytes literal and the escapes are the dialect
-//! (ADR-0044 clause 2): each technology keeps its own and hands them in.
-//! Four technologies carried the rest until 2026-09-14.
+//! Which delimiters, the bytes literal and the escapes are the dialect
+//! (ADR-0044 clause 2): each technology keeps its own and hands them in,
+//! reading and writing its delimited text through `codec::sql`. Four
+//! technologies carried the rest until 2026-09-14.
 
 use crate::arrived::Arrived;
 
@@ -119,9 +120,7 @@ mod tests {
     }
 
     fn quoted(rest: &str) -> Option<(String, &str)> {
-        let inner = rest.strip_prefix('\'')?;
-        let end = inner.find('\'')?;
-        Some((inner[..end].to_string(), &inner[end + 1..]))
+        codec::sql::Delimiter::STRING.unquote_prefix(rest).ok()
     }
 
     enum Event {

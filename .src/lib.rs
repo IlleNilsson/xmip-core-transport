@@ -30,10 +30,13 @@
 //!   stuffed.rs          the dot-stuffed block mail speaks: smtp, pop3
 //!   xml.rs              the flat-XML scan a protocol document is
 //!   label.rs            the label-and-pointer form of a DNS name: dns, mdns
-//!   ber.rs              X.690 tag-length-value: iec-61850, snmp
 //!   sql.rs              the one INSERT, the verb and the fixed table a SQL far end serves
-//!   hex.rs              bytes as hex pairs and back
 //!   technology.rs       what each technology is built on, and what reuses it
+//!
+//! The byte cursor and writer, hex, the CRCs and the varint every binary
+//! technology frames with are encoding primitives, not transport: they live in
+//! `xmip-core-library-codec`, which each technology depends on itself. They sat
+//! here as `cursor.rs`, `crc.rs` and `hex.rs` from 2026-09-14 until 2026-09-24.
 //!
 //! test support          compiled for tests only, `test-support` from a dev-dependency
 //!   payload.rs          the edge and sized payloads a loopback round is exercised with
@@ -51,13 +54,9 @@
 //! kept apart so that lifting them out was a move rather than a rewrite; it was.
 
 pub mod arrived;
-pub mod ber;
 pub mod claim;
-pub mod crc;
-pub mod cursor;
 pub mod direction;
 pub mod error;
-pub mod hex;
 pub mod label;
 pub mod line;
 pub mod listening;

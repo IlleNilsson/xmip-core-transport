@@ -49,8 +49,9 @@ serde = { version = "1", features = ["derive"] }
 # XML character data, escaped and unescaped as every reader in the estate
 # does it.
 codec = { package = "xmip-core-library-codec", git = "https://github.com/IlleNilsson/xmip-core-library-codec", branch = "main" }
-# X.690, which SNMP, MMS and GOOSE frame with, re-exported as `ber` so a
-# technology names it through this crate as it did when the reader lived here.
+# X.690, whose failures this crate's error takes with `From`, so a technology
+# that frames with it (snmp, iec-61850) writes `?`. The technologies depend on
+# the reader themselves; nothing re-exports it.
 asn1 = { package = "xmip-core-library-asn1", git = "https://github.com/IlleNilsson/xmip-core-library-asn1", branch = "main" }
 # TLS, for the one conversion a technology needs to write `?`: optional, so a
 # build without it carries no TLS stack.
