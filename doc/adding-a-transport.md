@@ -56,3 +56,16 @@ Playground drives it through one adapter over that, by every content contract
 at once, timed, sized and fault-injected. A new transport is its own loopback
 and a line in the list, not a new scenario — ADR-0028 and
 `test/core/playground/README.md`.
+
+The far end is the capability's, never a struct of the technology's own: a
+TCP protocol stands up `listening::Listening` over its `Accepting` — the
+transport type, or a closure over the session it serves — a datagram protocol
+`bound::Bound` over its `Reading`, and anything held in this process — a
+device on a simulated bus, a radio's server, a pipe — `held::Held` with an
+address and the one take. A protocol whose two ends meet in process keeps
+its sessions in `standing::Standing`. `loopback::both_ends` and
+`loopback::poke` are the two-thread dance and the bounded poke for a far
+end that delivers onward, and `ceiling::within` is the one refusal of a
+payload over the ceiling. What stays in the technology is its protocol: what
+the far end does with the exchange once it has it (ADR-0051, amendment
+2026-09-24).
