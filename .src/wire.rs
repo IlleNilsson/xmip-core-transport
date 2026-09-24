@@ -5,7 +5,9 @@
 //! unbounded header counts, unbounded bodies, and CRLF handled in one place and
 //! LF in another.
 //!
-//! Nothing here knows which protocol is calling.
+//! Nothing here knows which protocol is calling. The authority a protocol
+//! connects to — its host, its default port — is a URI's, and is read in
+//! `xmip-core-library-net` since 2026-09-24.
 
 use std::io::BufRead;
 
@@ -16,36 +18,6 @@ pub const MAX_BODY: usize = 64 * 1024 * 1024;
 
 /// The largest number of header lines Xmip will read before giving up.
 pub const MAX_HEADERS: usize = 200;
-
-/// Add the protocol's default port when the authority does not carry one.
-///
-/// The bracket check is what keeps `[::1]` from being read as host-and-port.
-#[must_use]
-pub fn with_default_port(authority: &str, default: u16) -> String {
-    let has_port = match authority.rfind(']') {
-        Some(close) => authority[close + 1..].starts_with(':'),
-        None => authority.contains(':'),
-    };
-
-    if has_port {
-        authority.to_string()
-    } else {
-        format!("{authority}:{default}")
-    }
-}
-
-/// The host without its port, and without the brackets an IPv6 literal carries.
-#[must_use]
-pub fn host_of(authority: &str) -> &str {
-    if let Some(close) = authority.rfind(']') {
-        return &authority[1..close];
-    }
-
-    match authority.rfind(':') {
-        Some(colon) => &authority[..colon],
-        None => authority,
-    }
-}
 
 /// Strip exactly one trailing line ending, CRLF or LF.
 #[must_use]
@@ -118,30 +90,6 @@ pub fn header<'a>(lines: &'a [String], name: &str) -> Option<&'a str> {
 mod tests {
     use super::*;
     use std::fmt::Write;
-
-    #[test]
-    fn a_default_port_is_added_only_when_one_is_missing() {
-        assert_eq!(with_default_port("example.com", 80), "example.com:80");
-        assert_eq!(
-            with_default_port("example.com:8080", 80),
-            "example.com:8080"
-        );
-    }
-
-    #[test]
-    fn an_ipv6_literal_is_not_mistaken_for_host_and_port() {
-        // The colons inside the brackets are the address, not a port.
-        assert_eq!(with_default_port("[::1]", 80), "[::1]:80");
-        assert_eq!(with_default_port("[::1]:8080", 80), "[::1]:8080");
-    }
-
-    #[test]
-    fn the_host_drops_the_port_and_the_brackets() {
-        assert_eq!(host_of("example.com:8080"), "example.com");
-        assert_eq!(host_of("example.com"), "example.com");
-        assert_eq!(host_of("[::1]:8080"), "::1");
-        assert_eq!(host_of("[::1]"), "::1");
-    }
 
     #[test]
     fn one_line_ending_comes_off_and_only_one() {

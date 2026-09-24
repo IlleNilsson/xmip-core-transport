@@ -17,12 +17,19 @@
 //! the contract          what every protocol implements, and nothing protocol-specific
 //!   protocol.rs         the Transport trait
 //!   direction.rs        which directions an implementation supports
-//!   arrived.rs          one Stream, and where it came from
+//!   arrived.rs          one Stream, and where it came from; the next or the one arrival
 //!   error.rs            failure, and whether saying it again would help
+//!   ceiling.rs          a payload against the most a protocol carries, and the refusal
 //!   claim.rs            one holder of a collidable artefact at a time
 //!   loopback.rs         a transport that is both ends of one exchange, with its
-//!                       ceiling and refusals; what the Playground drives (ADR-0051)
-//!   listening.rs        the far end of every TCP technology's round: a bound listener
+//!                       ceiling and refusals; what the Playground drives (ADR-0051);
+//!                       both ends on two threads, and the poke that releases a far end
+//!
+//! the far ends          what a technology's loopback stands up (ADR-0051)
+//!   listening.rs        a bound TCP listener waiting for its one connection
+//!   bound.rs            a bound UDP socket waiting for its one exchange
+//!   held.rs             a far end in this process: a bus device, a radio's server, a pipe
+//!   standing.rs         in-process sessions stood up by address until taken
 //!
 //! shared machinery      what two technologies both need lives here (ADR-0044)
 //!   wire.rs             reading line-oriented protocols: http, smtp
@@ -54,9 +61,12 @@
 //! kept apart so that lifting them out was a move rather than a rewrite; it was.
 
 pub mod arrived;
+pub mod bound;
+pub mod ceiling;
 pub mod claim;
 pub mod direction;
 pub mod error;
+pub mod held;
 pub mod label;
 pub mod line;
 pub mod listening;
@@ -66,6 +76,7 @@ pub mod payload;
 pub mod protocol;
 pub mod socket;
 pub mod sql;
+pub mod standing;
 pub mod stuffed;
 pub mod technology;
 pub mod wire;

@@ -103,7 +103,7 @@ pub trait Loopback: Transport + Send + Sync {
     /// its own accept now (`socket::accept_tcp`), so the poke only has to be
     /// quick, not certain.
     fn unblock(&self, address: &str) {
-        drop(crate::socket::connect_tcp(address, Some(UNBLOCK_TIMEOUT)));
+        poke(address);
     }
 
     /// One round: stand up the far end, send from the near end on this
@@ -116,14 +116,11 @@ pub trait Loopback: Transport + Send + Sync {
     fn round(&self, payload: &[u8]) -> Result<Arrived> {
         let far = self.far_end()?;
         let address = far.address().to_string();
-        let taking = std::thread::spawn(move || far.take_one());
-        let sent = self.send_to(&address, payload);
-        if sent.is_err() {
-            self.unblock(&address);
-        }
-        let taken = taking
-            .join()
-            .map_err(|_| protocol_error("the far end's thread panicked"))?;
+        let (sent, taken) = both_ends(
+            move || far.take_one(),
+            || self.send_to(&address, payload),
+            || self.unblock(&address),
+        );
         sent.map_err(|error| error.at("send failed"))?;
         taken.map_err(|error| error.at("take failed"))
     }
@@ -147,6 +144,43 @@ pub trait Loopback: Transport + Send + Sync {
         }
         Ok(arrived)
     }
+}
+
+/// Poke a listening socket at `address` with a throwaway connect, bounded
+/// by [`UNBLOCK_TIMEOUT`], so a far end waiting on a near end that failed
+/// is judged rather than waited on. What [`Loopback::unblock`] does by
+/// default, and what a far end that stands a second listener of its own —
+/// a subscription's endpoint, a webhook — does to it. Written four times,
+/// three with the number in it, until 2026-09-24.
+pub fn poke(address: &str) {
+    drop(crate::socket::connect_tcp(address, Some(UNBLOCK_TIMEOUT)));
+}
+
+/// Both ends of one exchange: `take` on a thread of its own, `give` on this
+/// one, and `unblock` when the giving failed, so the taker is released
+/// rather than waited on. Hands back what each end came to, for the caller
+/// to judge in its own words. [`Loopback::round`] is this over a far end
+/// and a near end; a far end that delivers onward — SNS to its
+/// subscription, Event Grid to its webhook — is this again, inside, and so
+/// is the Playground filing an archive through a far end it serves.
+///
+/// A taking thread that panicked is a failed take.
+pub fn both_ends<T: Send, U, E>(
+    take: impl FnOnce() -> Result<T> + Send,
+    give: impl FnOnce() -> std::result::Result<U, E>,
+    unblock: impl FnOnce(),
+) -> (std::result::Result<U, E>, Result<T>) {
+    std::thread::scope(|scope| {
+        let taking = scope.spawn(take);
+        let given = give();
+        if given.is_err() {
+            unblock();
+        }
+        let taken = taking
+            .join()
+            .unwrap_or_else(|_| Err(protocol_error("the far end's thread panicked")));
+        (given, taken)
+    })
 }
 
 #[cfg(test)]
