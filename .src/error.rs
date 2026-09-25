@@ -70,13 +70,22 @@ pub type Result<T> = std::result::Result<T, TransportError>;
 /// this wrong is how a platform either gives up too early or retries forever.
 #[must_use]
 pub fn classify(context: &str, error: &io::Error) -> TransportError {
+    TransportError {
+        message: format!("{context}: {}", said(error)),
+        retryable: passes(error.kind()),
+    }
+}
+
+/// Whether a failure of this kind may pass on a second attempt: a blip, a
+/// timeout, a reset, a refusal, a port not yet free.
+const fn passes(kind: io::ErrorKind) -> bool {
     use io::ErrorKind::{
         AddrInUse, AddrNotAvailable, ConnectionAborted, ConnectionRefused, ConnectionReset,
         Interrupted, TimedOut, WouldBlock,
     };
 
-    let retryable = matches!(
-        error.kind(),
+    matches!(
+        kind,
         Interrupted
             | WouldBlock
             | TimedOut
@@ -85,12 +94,7 @@ pub fn classify(context: &str, error: &io::Error) -> TransportError {
             | ConnectionRefused
             | AddrInUse
             | AddrNotAvailable
-    );
-
-    TransportError {
-        message: format!("{context}: {}", said(error)),
-        retryable,
-    }
+    )
 }
 
 /// What an operating system said, in the estate's words where its own are
@@ -135,6 +139,18 @@ impl From<codec::CodecError> for TransportError {
 impl From<asn1::Asn1Error> for TransportError {
     fn from(error: asn1::Asn1Error) -> Self {
         Self::permanent(error.message)
+    }
+}
+
+/// A network primitive's failure: a connection's judged by its kind as
+/// [`classify`] judges one, anything else — an answer that is not HTTP, a
+/// URL that is not one — permanent.
+impl From<net::NetError> for TransportError {
+    fn from(error: net::NetError) -> Self {
+        Self {
+            retryable: error.io.is_some_and(passes),
+            message: error.message,
+        }
     }
 }
 
@@ -187,6 +203,17 @@ mod tests {
             met.message.contains("no local port was free"),
             "an operator is told what ran out: {met}"
         );
+    }
+
+    #[test]
+    fn a_network_failure_is_judged_by_its_kind_and_a_malformed_answer_never_retried() {
+        let refused =
+            net::NetError::from_io("connecting", &io_error(io::ErrorKind::ConnectionRefused));
+        let missing = net::NetError::from_io("reading", &io_error(io::ErrorKind::NotFound));
+
+        assert!(TransportError::from(refused).retryable);
+        assert!(!TransportError::from(missing).retryable);
+        assert!(!TransportError::from(net::NetError::new("not an HTTP answer")).retryable);
     }
 
     #[test]

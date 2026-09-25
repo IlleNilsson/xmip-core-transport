@@ -67,6 +67,12 @@ impl<T: Reading> FarEnd for Bound<T> {
         &self.address
     }
 
+    /// A datagram socket reads with its own timeout, and nothing listens at
+    /// its address for a round to poke.
+    fn datagram(&self) -> bool {
+        true
+    }
+
     fn take_one(self: Box<Self>) -> Result<Arrived> {
         let Self { taking, socket, .. } = *self;
         taking.take_one(&socket)
@@ -94,6 +100,7 @@ mod tests {
             bound,
         ));
         let address = far.address().to_string();
+        assert!(far.datagram());
         assert!(address.starts_with("127.0.0.1:") && !address.ends_with(":0"));
         let near = UdpSocket::bind("127.0.0.1:0").expect("near");
         near.send_to(b"one datagram", &address).expect("send");
