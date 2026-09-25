@@ -56,3 +56,8 @@ asn1 = { package = "xmip-core-library-asn1", git = "https://github.com/IlleNilss
 # TLS, for the one conversion a technology needs to write `?`: optional, so a
 # build without it carries no TLS stack.
 tls = { package = "xmip-core-library-tls", git = "https://github.com/IlleNilsson/xmip-core-library-tls", branch = "main", optional = true }
+# The network primitives, whose failures this crate's error takes with `From`,
+# so a technology that asks over HTTP (`net::http`) or reads a URL
+# (`net::Endpoint`) writes `?`. The technologies depend on it themselves;
+# nothing re-exports it.
+net = { package = "xmip-core-library-net", git = "https://github.com/IlleNilsson/xmip-core-library-net", branch = "main" }

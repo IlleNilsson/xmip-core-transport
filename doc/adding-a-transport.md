@@ -69,3 +69,12 @@ end that delivers onward, and `ceiling::within` is the one refusal of a
 payload over the ceiling. What stays in the technology is its protocol: what
 the far end does with the exchange once it has it (ADR-0051, amendment
 2026-09-24).
+
+Do not override `round` or `unblock` to say what the trait already knows
+(ADR-0051, amendment 2026-09-25). A protocol whose far end answers as the
+near end sends — a bus, a line with one master, a radio held in process, a
+directory — declares `exchanges_in_order` and the round goes in order on one
+thread. A datagram far end is `bound::Bound`, which says so, and is left to
+its own timeout. The default `unblock` pokes a TCP listener; override it only
+where a far end is released some other way — a path to connect to, a frame
+that ends a transfer.

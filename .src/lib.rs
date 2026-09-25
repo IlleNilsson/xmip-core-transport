@@ -32,7 +32,7 @@
 //!   standing.rs         in-process sessions stood up by address until taken
 //!
 //! shared machinery      what two technologies both need lives here (ADR-0044)
-//!   wire.rs             reading line-oriented protocols: http, smtp
+//!   wire.rs             the most a connection is read for
 //!   socket.rs           binding, accepting, connecting and splitting sockets; multicast
 //!   stuffed.rs          the dot-stuffed block mail speaks: smtp, pop3
 //!   xml.rs              the flat-XML scan a protocol document is

@@ -37,6 +37,14 @@ pub trait FarEnd: Send {
     /// Where the near end sends: an address in the protocol's own terms.
     fn address(&self) -> &str;
 
+    /// Whether this far end reads a datagram socket: it waits with its own
+    /// timeout and nothing listens at its address, so a round whose near
+    /// end failed leaves it to time out rather than poke a port that is
+    /// not its own. `bound::Bound` says yes; every other far end, no.
+    fn datagram(&self) -> bool {
+        false
+    }
+
     /// Wait for the one exchange and hand back what arrived. Consumes the far
     /// end: one exchange is what it was stood up for.
     ///
@@ -77,6 +85,17 @@ pub trait Loopback: Transport + Send + Sync {
         None
     }
 
+    /// Whether the two ends exchange in order on one thread: the far end
+    /// answers as the near end sends — a bus, a line with one master, a
+    /// radio held in process, a directory, a file — so there is nothing to
+    /// wait on and two threads would only race. A protocol that does says
+    /// so here, in its own words, and [`Loopback::round`] goes
+    /// [`Loopback::round_in_order`]. Sixteen technologies overrode `round`
+    /// to say it until 2026-09-25.
+    fn exchanges_in_order(&self) -> bool {
+        false
+    }
+
     /// Stand up the far end and learn where it listens.
     ///
     /// # Errors
@@ -91,9 +110,15 @@ pub trait Loopback: Transport + Send + Sync {
 
     /// Unblock a far end whose near end failed before it connected — an
     /// ephemeral port exhausted, a refused connect under load — so the round
-    /// is judged rather than waited on. The default pokes a listening socket
-    /// with a throwaway connect, which is what every socket protocol needs and
-    /// what a datagram or in-process protocol, with its own timeout, ignores.
+    /// is judged rather than waited on. The default knows the three kinds of
+    /// address a far end has: a TCP listener is poked with a throwaway
+    /// connect; a protocol that exchanges in order never waits, so there is
+    /// nothing to release; and a datagram far end, which reads with its own
+    /// timeout, is never handed here — [`Loopback::round`] asks the far end
+    /// ([`FarEnd::datagram`]) before it would. A technology overrides this
+    /// only where its far end is released some other way: a path to connect
+    /// to, a frame that ends a transfer. Twenty-six technologies overrode it
+    /// with nothing until 2026-09-25.
     ///
     /// The poke is bounded and short. It was a bare `TcpStream::connect`
     /// until 2026-09-21, and the case it was written for is the case it could
@@ -103,23 +128,34 @@ pub trait Loopback: Transport + Send + Sync {
     /// its own accept now (`socket::accept_tcp`), so the poke only has to be
     /// quick, not certain.
     fn unblock(&self, address: &str) {
-        poke(address);
+        if !self.exchanges_in_order() {
+            poke(address);
+        }
     }
 
     /// One round: stand up the far end, send from the near end on this
     /// thread while the far end takes on another, and return what arrived.
     /// A protocol whose two ends do not need two threads — a directory, an
-    /// in-process bus — overrides this with [`Loopback::round_in_order`].
+    /// in-process bus — says so in [`Loopback::exchanges_in_order`], and the
+    /// round is [`Loopback::round_in_order`].
     ///
     /// # Errors
     /// Where either end failed, with which one.
     fn round(&self, payload: &[u8]) -> Result<Arrived> {
+        if self.exchanges_in_order() {
+            return self.round_in_order(payload);
+        }
         let far = self.far_end()?;
         let address = far.address().to_string();
+        let datagram = far.datagram();
         let (sent, taken) = both_ends(
             move || far.take_one(),
             || self.send_to(&address, payload),
-            || self.unblock(&address),
+            || {
+                if !datagram {
+                    self.unblock(&address);
+                }
+            },
         );
         sent.map_err(|error| error.at("send failed"))?;
         taken.map_err(|error| error.at("take failed"))
@@ -128,9 +164,10 @@ pub trait Loopback: Transport + Send + Sync {
     /// One round in order on one thread: the send goes first and the take
     /// finds what it left. For a protocol whose far end answers as the near
     /// end sends — a bus, a line with one master, a directory, a file — so
-    /// there is nothing to wait on and two threads would only race. A
-    /// technology's `round` delegates here and says why in its own words.
-    /// Seventeen technologies each wrote this before 2026-09-14 (ADR-0044).
+    /// there is nothing to wait on and two threads would only race.
+    /// [`Loopback::round`] is this where [`Loopback::exchanges_in_order`]
+    /// says so. Seventeen technologies each wrote this before 2026-09-14
+    /// (ADR-0044).
     ///
     /// # Errors
     /// Where either end failed, or what was taken back is not what was
@@ -186,23 +223,48 @@ pub fn both_ends<T: Send, U, E>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, Mutex};
 
-    /// An in-process protocol: the far end is a mailbox, the near end drops
-    /// bytes in it, and the round takes them out in order on one thread.
-    struct Mailbox(Arc<Mutex<Option<Vec<u8>>>>);
+    type Letter = Arc<Mutex<Option<Vec<u8>>>>;
 
-    struct Slot(Arc<Mutex<Option<Vec<u8>>>>);
+    /// An in-process protocol: the far end is a mailbox and the near end
+    /// drops bytes in it. It declares whether it exchanges in order and
+    /// whether its far end reads a datagram, and records an unblock.
+    struct Mailbox {
+        letter: Letter,
+        in_order: bool,
+        datagram: bool,
+        unblocked: AtomicBool,
+    }
+
+    fn mailbox(in_order: bool, datagram: bool) -> Mailbox {
+        Mailbox {
+            letter: Arc::new(Mutex::new(None)),
+            in_order,
+            datagram,
+            unblocked: AtomicBool::new(false),
+        }
+    }
+
+    struct Slot {
+        letter: Letter,
+        datagram: bool,
+    }
 
     impl FarEnd for Slot {
         fn address(&self) -> &'static str {
             "mailbox"
         }
 
+        fn datagram(&self) -> bool {
+            self.datagram
+        }
+
         fn take_one(self: Box<Self>) -> Result<Arrived> {
             let deadline = std::time::Instant::now() + LOOPBACK_TIMEOUT;
             loop {
-                if let Some(bytes) = self.0.lock().expect("lock").take() {
+                if let Some(bytes) = self.letter.lock().expect("lock").take() {
                     return Ok(Arrived::new("mailbox://one", bytes));
                 }
                 if std::time::Instant::now() > deadline {
@@ -224,7 +286,7 @@ mod tests {
 
         fn receive(&self) -> Result<Vec<Arrived>> {
             Ok(self
-                .0
+                .letter
                 .lock()
                 .expect("lock")
                 .take()
@@ -243,8 +305,15 @@ mod tests {
             Some(8)
         }
 
+        fn exchanges_in_order(&self) -> bool {
+            self.in_order
+        }
+
         fn far_end(&self) -> Result<Box<dyn FarEnd>> {
-            Ok(Box::new(Slot(Arc::clone(&self.0))))
+            Ok(Box::new(Slot {
+                letter: Arc::clone(&self.letter),
+                datagram: self.datagram,
+            }))
         }
 
         fn send_to(&self, address: &str, payload: &[u8]) -> Result<()> {
@@ -254,14 +323,18 @@ mod tests {
             if payload.len() > 8 {
                 return Err(protocol_error("over the mailbox's ceiling"));
             }
-            *self.0.lock().expect("lock") = Some(payload.to_vec());
+            *self.letter.lock().expect("lock") = Some(payload.to_vec());
             Ok(())
+        }
+
+        fn unblock(&self, _address: &str) {
+            self.unblocked.store(true, Ordering::SeqCst);
         }
     }
 
     #[test]
     fn a_round_sends_on_one_thread_and_takes_on_another() {
-        let mailbox = Mailbox(Arc::new(Mutex::new(None)));
+        let mailbox = mailbox(false, false);
         let arrived = mailbox.round(b"ping").expect("round");
         assert_eq!(arrived.bytes, b"ping");
         assert_eq!(arrived.origin_uri, "mailbox://one");
@@ -269,7 +342,7 @@ mod tests {
 
     #[test]
     fn a_round_in_order_sends_then_takes_and_checks_what_came_back() {
-        let mailbox = Mailbox(Arc::new(Mutex::new(None)));
+        let mailbox = mailbox(false, false);
         let arrived = mailbox.round_in_order(b"pong").expect("round");
         assert_eq!(arrived.bytes, b"pong");
         let error = mailbox
@@ -279,12 +352,30 @@ mod tests {
     }
 
     #[test]
-    fn a_failed_send_is_judged_and_names_the_send() {
-        let mailbox = Mailbox(Arc::new(Mutex::new(None)));
+    fn a_failed_send_is_judged_names_the_send_and_unblocks_the_far_end() {
+        let mailbox = mailbox(false, false);
         let error = mailbox.round(b"over the top").expect_err("refused");
         assert!(error.message.starts_with("send failed:"), "{error}");
+        assert!(mailbox.unblocked.load(Ordering::SeqCst));
         assert_eq!(mailbox.ceiling(), Some(8));
         assert!(mailbox.refuses(b"x").is_none());
         assert_eq!(mailbox.name(), "mailbox");
+    }
+
+    #[test]
+    fn a_protocol_that_exchanges_in_order_rounds_in_order_and_never_unblocks() {
+        let mailbox = mailbox(true, false);
+        assert_eq!(mailbox.round(b"ping").expect("round").bytes, b"ping");
+        let error = mailbox.round(b"over the top").expect_err("refused");
+        assert!(!error.message.starts_with("send failed:"), "{error}");
+        assert!(!mailbox.unblocked.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn a_datagram_far_end_is_left_to_its_own_timeout() {
+        let mailbox = mailbox(false, true);
+        let error = mailbox.round(b"over the top").expect_err("refused");
+        assert!(error.message.starts_with("send failed:"), "{error}");
+        assert!(!mailbox.unblocked.load(Ordering::SeqCst));
     }
 }
