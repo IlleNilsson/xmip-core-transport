@@ -1,6 +1,8 @@
-//! What every SQL transport's far end shares: the one statement a
-//! `Transport::send` writes, taken apart so a session can record what a
-//! client inserted without being a SQL parser; the verb of a statement;
+//! What every SQL transport shares: where a send target puts its row; the
+//! one statement a `Transport::send` writes, its table and column quoted
+//! as the technology's [`Dialect`] says, and the same statement taken
+//! apart so a session can record what a client inserted without being a
+//! SQL parser; the verb of a statement;
 //! the one fixed table a session answers SELECTs from; and what the
 //! payload column holds, as a Location declares it.
 //!
@@ -15,6 +17,7 @@
 //! be UTF-8 are still bytes, and a value that happens to look like the
 //! binary literal in a text column is still text.
 
+use codec::sql::Delimiter;
 use codec::unicode::Form;
 use xcore::settings::{Applies, Fixed, Kind, Presence, Read, Setting};
 
@@ -164,28 +167,135 @@ pub fn strip_word<'a>(rest: &'a str, word: &str) -> Option<&'a str> {
     head.eq_ignore_ascii_case(word).then(|| &rest[word.len()..])
 }
 
-/// `INSERT INTO <table> (<column>) VALUES (<literal>)` taken apart: the
-/// table, the column and the literal's value. `identifier` reads one
-/// identifier as the dialect quotes it and `literal` one literal as the
-/// dialect writes it, each returning what follows; anything else, or more
-/// than one column, is `None`.
-#[must_use]
-pub fn parse_insert<'a, V>(
-    sql: &'a str,
-    identifier: impl Fn(&'a str) -> Option<(String, &'a str)>,
-    literal: impl Fn(&'a str) -> Option<(V, &'a str)>,
-) -> Option<(String, String, V)> {
-    let rest = sql.trim().trim_end_matches(';');
-    let rest = strip_word(rest, "INSERT")?;
-    let rest = strip_word(rest, "INTO")?;
-    let (table, rest) = identifier(rest)?;
-    let rest = rest.trim_start().strip_prefix('(')?;
-    let (column, rest) = identifier(rest)?;
-    let rest = rest.trim_start().strip_prefix(')')?;
-    let rest = strip_word(rest, "VALUES")?;
-    let rest = rest.trim_start().strip_prefix('(')?.trim_start();
-    let (value, tail) = literal(rest)?;
-    (tail.trim() == ")").then_some((table, column, value))
+/// What a SQL technology hands the capability so it can write and read the
+/// technology's one statement: the URI schemes a send target may open
+/// with, the word for what the segment before the table names, and how an
+/// identifier is written. Each technology declares its own as a constant
+/// and passes it; nothing here tells one dialect from another by name.
+#[derive(Clone, Copy, Debug)]
+pub struct Dialect {
+    /// The schemes a send target may open with: the technology's own and
+    /// the ones its users also write (`sqlserver://`, `postgres://`).
+    pub schemes: &'static [&'static str],
+    /// What the segment before the table names: `database`, `service`.
+    pub catalog: &'static str,
+    /// The delimiters a quoted identifier is written between.
+    pub identifier: Delimiter,
+    /// What a bare identifier takes besides letters and digits.
+    pub bare: &'static [char],
+}
+
+/// Where a send puts its row: the server, the catalog (database or
+/// service), the table and the column, as a target named them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Destination<'a> {
+    pub server: &'a str,
+    pub catalog: &'a str,
+    pub table: &'a str,
+    pub column: &'a str,
+}
+
+impl Dialect {
+    /// Where `target` puts a row: `<scheme>://host:port/<catalog>/<table>
+    /// /<column>`, `host:port/<catalog>/<table>/<column>`, or
+    /// `<table>/<column>` on the configured `server` and `catalog`.
+    ///
+    /// # Errors
+    /// A path that is not catalog/table/column or table/column, or that
+    /// has an empty segment.
+    pub fn destination<'a>(
+        &self,
+        target: &'a str,
+        server: &'a str,
+        catalog: &'a str,
+    ) -> Result<Destination<'a>> {
+        let (server, path) = self
+            .schemes
+            .iter()
+            .find_map(|scheme| crate::socket::target(scheme, target))
+            .or_else(|| match target.split_once('/') {
+                Some((peer, path)) if peer.contains(':') => Some((peer, path)),
+                _ => None,
+            })
+            .unwrap_or((server, target));
+        let segments: Vec<&str> = path.split('/').collect();
+        let (catalog, table, column) = match segments.as_slice() {
+            [catalog, table, column] => (*catalog, *table, *column),
+            [table, column] => (catalog, *table, *column),
+            _ => ("", "", ""),
+        };
+        if [catalog, table, column].contains(&"") {
+            return Err(TransportError::permanent(format!(
+                "{target:?} is not {}/table/column or table/column",
+                self.catalog
+            )));
+        }
+        Ok(Destination {
+            server,
+            catalog,
+            table,
+            column,
+        })
+    }
+
+    /// `name` as a quoted identifier, every closing delimiter doubled, so
+    /// whatever a target names is one identifier and nothing else.
+    #[must_use]
+    pub fn quote_identifier(&self, name: &str) -> String {
+        self.identifier.quote(name)
+    }
+
+    /// `INSERT INTO <table> (<column>) VALUES (<value>)`, the table and
+    /// column quoted. `value` is what the technology puts in `VALUES`: its
+    /// bind marker where the value travels bound (`:1`), or the literal
+    /// [`Column::literal`] wrote with the dialect's own escaping; never
+    /// text taken from a target.
+    #[must_use]
+    pub fn insert(&self, table: &str, column: &str, value: &str) -> String {
+        format!(
+            "INSERT INTO {} ({}) VALUES ({value})",
+            self.quote_identifier(table),
+            self.quote_identifier(column)
+        )
+    }
+
+    /// One identifier, bare or quoted with its closing delimiter doubled,
+    /// and what follows it.
+    #[must_use]
+    pub fn read_identifier<'a>(&self, rest: &'a str) -> Option<(String, &'a str)> {
+        let rest = rest.trim_start();
+        if rest.starts_with(self.identifier.open) {
+            return self.identifier.unquote_prefix(rest).ok();
+        }
+        let end = rest
+            .find(|c: char| !(c.is_alphanumeric() || self.bare.contains(&c)))
+            .unwrap_or(rest.len());
+        (end > 0).then(|| (rest[..end].to_string(), &rest[end..]))
+    }
+
+    /// `INSERT INTO <table> (<column>) VALUES (<value>)` taken apart: the
+    /// table, the column and the value. Identifiers are read as this
+    /// dialect writes them and `value` reads one value as the technology
+    /// writes it, returning what follows; anything else, or more than one
+    /// column, is `None`.
+    #[must_use]
+    pub fn parse_insert<'a, V>(
+        &self,
+        sql: &'a str,
+        value: impl Fn(&'a str) -> Option<(V, &'a str)>,
+    ) -> Option<(String, String, V)> {
+        let rest = sql.trim().trim_end_matches(';');
+        let rest = strip_word(rest, "INSERT")?;
+        let rest = strip_word(rest, "INTO")?;
+        let (table, rest) = self.read_identifier(rest)?;
+        let rest = rest.trim_start().strip_prefix('(')?;
+        let (column, rest) = self.read_identifier(rest)?;
+        let rest = rest.trim_start().strip_prefix(')')?;
+        let rest = strip_word(rest, "VALUES")?;
+        let rest = rest.trim_start().strip_prefix('(')?.trim_start();
+        let (value, tail) = value(rest)?;
+        (tail.trim() == ")").then_some((table, column, value))
+    }
 }
 
 /// What a session answers a statement with before its fixed table is
@@ -240,13 +350,12 @@ pub fn next_insert<E: Inserted>(
 mod tests {
     use super::*;
 
-    fn bare(rest: &str) -> Option<(String, &str)> {
-        let rest = rest.trim_start();
-        let end = rest
-            .find(|c: char| !(c.is_alphanumeric() || c == '_'))
-            .unwrap_or(rest.len());
-        (end > 0).then(|| (rest[..end].to_string(), &rest[end..]))
-    }
+    const DIALECT: Dialect = Dialect {
+        schemes: &["example", "alias"],
+        catalog: "database",
+        identifier: Delimiter::BRACKET,
+        bare: &['_', '.'],
+    };
 
     fn quoted(rest: &str) -> Option<(String, &str)> {
         codec::sql::Delimiter::STRING.unquote_prefix(rest).ok()
@@ -350,18 +459,68 @@ mod tests {
     }
 
     #[test]
+    fn a_target_is_read_once_for_every_scheme_the_dialect_names() {
+        let at = |server, catalog, table, column| Destination {
+            server,
+            catalog,
+            table,
+            column,
+        };
+        let read = |target| DIALECT.destination(target, "configured:1", "orders");
+        assert_eq!(
+            read("example://h:1/db/t/c").expect("scheme"),
+            at("h:1", "db", "t", "c")
+        );
+        assert_eq!(
+            read("alias://h:1/t/c").expect("alias"),
+            at("h:1", "orders", "t", "c")
+        );
+        assert_eq!(read("h:2/db/t/c").expect("peer"), at("h:2", "db", "t", "c"));
+        assert_eq!(
+            read("t/c").expect("configured"),
+            at("configured:1", "orders", "t", "c")
+        );
+        for bad in ["only-one", "a/b/c/d", "example://h:1/", "db//c", "t/"] {
+            let refused = read(bad).expect_err(bad);
+            assert!(!refused.retryable, "{bad}");
+            assert!(
+                refused.message.contains("database/table/column"),
+                "{refused}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_insert_quotes_what_a_target_names_so_it_stays_one_identifier() {
+        fn marker(rest: &str) -> Option<((), &str)> {
+            rest.strip_prefix(":1").map(|tail| ((), tail))
+        }
+        let sql = DIALECT.insert("in]box; DROP TABLE x --", "pay load", ":1");
+        assert_eq!(
+            sql,
+            "INSERT INTO [in]]box; DROP TABLE x --] ([pay load]) VALUES (:1)"
+        );
+        assert_eq!(
+            DIALECT.parse_insert(&sql, marker),
+            Some(("in]box; DROP TABLE x --".into(), "pay load".into(), ()))
+        );
+    }
+
+    #[test]
     fn an_insert_of_one_column_is_taken_apart_with_the_dialect_handed_in() {
         assert_eq!(
-            parse_insert(
-                "insert into inbox ( payload ) values ( 'x' );",
-                bare,
-                quoted
-            ),
+            DIALECT.parse_insert("insert into inbox ( payload ) values ( 'x' );", quoted),
             Some(("inbox".into(), "payload".into(), "x".into()))
         );
-        assert!(parse_insert("INSERT INTO inbox (a, b) VALUES ('x', 'y')", bare, quoted).is_none());
-        assert!(parse_insert("INSERT INTO inbox (a) VALUES ('open", bare, quoted).is_none());
-        assert!(parse_insert("UPDATE inbox SET a = 'x'", bare, quoted).is_none());
+        assert_eq!(
+            DIALECT.parse_insert("INSERT INTO dbo.inbox ([a]) VALUES ('x')", quoted),
+            Some(("dbo.inbox".into(), "a".into(), "x".into()))
+        );
+        let parse = |sql| DIALECT.parse_insert(sql, quoted);
+        assert!(parse("INSERT INTO inbox (a, b) VALUES ('x', 'y')").is_none());
+        assert!(parse("INSERT INTO inbox (a) VALUES ('open").is_none());
+        assert!(parse("INSERT INTO [open (a) VALUES ('x')").is_none());
+        assert!(parse("UPDATE inbox SET a = 'x'").is_none());
         assert_eq!(strip_word("  Values (", "VALUES"), Some(" ("));
         assert_eq!(strip_word("VAL", "VALUES"), None);
         assert_eq!(verb("  select 1"), "SELECT");

@@ -15,7 +15,7 @@
 
 use std::io::BufRead;
 
-use crate::error::{Result, classify, protocol_error};
+use crate::error::{Result, protocol_error};
 
 /// The sequence that ends a block: the writer's own CRLF, a period, CRLF.
 const TERMINATOR: &[u8] = b"\r\n.\r\n";
@@ -40,19 +40,16 @@ pub fn stuff(bytes: &[u8]) -> Vec<u8> {
 /// The bytes a block on the wire carried: everything before the first
 /// terminator, the doubled periods undone.
 ///
+/// Never holds more than `max` and the terminator: each line is read by
+/// `net::read::until` under what is left.
+///
 /// # Errors
 /// The connection closed before the terminator, or the block passed `max`.
 pub fn read_stuffed(reader: &mut impl BufRead, max: usize) -> Result<Vec<u8>> {
     let mut wire = Vec::new();
     loop {
-        let read = reader
-            .read_until(b'\n', &mut wire)
-            .map_err(|e| classify("reading a dot-stuffed block", &e))?;
-        if read == 0 {
+        if net::read::until(reader, b'\n', max + TERMINATOR.len(), &mut wire)? == 0 {
             return Err(protocol_error("a block that ended before its terminator"));
-        }
-        if wire.len() > max + TERMINATOR.len() {
-            return Err(protocol_error("a block over the size Xmip will read"));
         }
         if wire == b".\r\n" {
             return Ok(Vec::new());
@@ -132,5 +129,10 @@ mod tests {
         );
         assert!(read_stuffed(&mut &b"never ends\r\n"[..], 1 << 20).is_err());
         assert!(read_stuffed(&mut &b"too long\r\n.\r\n"[..], 3).is_err());
+        let endless = vec![b'x'; 64];
+        assert!(
+            read_stuffed(&mut endless.as_slice(), 8).is_err(),
+            "a line that never ends is refused at the ceiling, not held"
+        );
     }
 }
