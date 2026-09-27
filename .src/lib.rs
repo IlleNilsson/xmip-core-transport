@@ -34,7 +34,10 @@
 //!   standing.rs         in-process sessions stood up by address until taken
 //!
 //! shared machinery      what two technologies both need lives here (ADR-0044)
-//!   socket.rs           binding, accepting, connecting and splitting sockets; multicast
+//!   socket.rs           binding, accepting (waiting on readiness), connecting and
+//!                       splitting sockets; multicast
+//!   sender.rs           the datagram socket a UDP technology sends from, bound once
+//!                       per address family and kept
 //!   stuffed.rs          the dot-stuffed block mail speaks: smtp, pop3
 //!   xml.rs              the flat-XML scan a protocol document is
 //!   label.rs            the label-and-pointer form of a DNS name: dns, mdns
@@ -82,6 +85,7 @@ pub mod loopback;
 #[cfg(any(test, feature = "test-support"))]
 pub mod payload;
 pub mod protocol;
+pub mod sender;
 pub mod socket;
 pub mod sql;
 pub mod standing;

@@ -61,6 +61,10 @@ tls = { package = "xmip-core-library-tls", git = "https://github.com/IlleNilsson
 # (`net::Endpoint`) writes `?`. The technologies depend on it themselves;
 # nothing re-exports it.
 net = { package = "xmip-core-library-net", git = "https://github.com/IlleNilsson/xmip-core-library-net", branch = "main" }
+# The readiness wait a bounded accept blocks on (socket.rs): poll(2), and
+# WSAPoll on Windows, behind a safe call. Only its `event` module; std has
+# no accept with a deadline, and the alternative was a nap and a retry.
+rustix = { version = "1", default-features = false, features = ["std", "event"] }
 # The attempt the resilience guards judge: this crate's error becomes
 # `resilience::Failure` by `From`, once, so a technology whose attempt a
 # guard decides — an Event carried at least once (ADR-0065) — writes
