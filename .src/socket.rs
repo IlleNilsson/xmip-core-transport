@@ -1,16 +1,15 @@
 //! Opening sockets the way every TCP and UDP technology opens them: bind
 //! and report the address actually assigned, accept or connect with the
 //! read timeout applied, split a connection into a buffered reader and a
-//! writer, and read a `scheme://authority/path` target.
+//! writer, and read a `scheme://authority/path` target. Datagrams are sent
+//! from a socket bound once ([`crate::sender`]).
 //!
 //! Twenty technologies wrote these same fifteen lines each before this
 //! file existed (2026-09-08). What a protocol does *with* the socket stays
 //! in the technology; what it takes to have one is here.
 
-use std::io::{BufReader, ErrorKind};
-use std::net::{
-    Ipv4Addr, SocketAddr, SocketAddrV4, TcpListener, TcpStream, ToSocketAddrs, UdpSocket,
-};
+use std::io::{self, BufReader, ErrorKind};
+use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpListener, TcpStream, UdpSocket};
 use std::time::{Duration, Instant};
 
 use crate::error::{Result, TransportError, classify};
@@ -28,8 +27,8 @@ pub fn bind_tcp(bind: &str) -> Result<(TcpListener, String)> {
     Ok((listener, local.to_string()))
 }
 
-/// Accept one connection within `timeout`, with `timeout` on its reads.
-/// `None` waits forever, which is what a listening Receive Location does.
+/// Accept one connection within `timeout`, with `timeout` on its reads and
+/// Nagle's algorithm off. `None` waits forever, which is what a listening Receive Location does.
 ///
 /// The wait for the connection is bounded as well as the reads. It was not
 /// until 2026-09-20, and the cost was the Playground's own test suite: a far
@@ -47,66 +46,177 @@ pub fn accept_tcp(
     listener: &TcpListener,
     timeout: Option<Duration>,
 ) -> Result<(TcpStream, SocketAddr)> {
-    let (stream, peer) = accept_within(listener, timeout)?;
+    let (stream, peer) = accept_within(listener, timeout, "nothing connected")?;
     settle(&stream, timeout)?;
+    // An answer written as a head and then a body goes at once, as
+    // `net::connect` has a request go, not after the delayed acknowledgement.
+    stream
+        .set_nodelay(true)
+        .map_err(|e| classify("setting the connection's delay", &e))?;
     Ok((stream, peer))
 }
 
-// Polled rather than selected on: std has no accept with a deadline, and a
-// two-millisecond nap costs a thousandth of the shortest timeout anyone
-// passes while keeping this dependency-free. The listener is put back into
-// blocking mode on every way out, including the error ways, because it
-// belongs to the caller and a non-blocking listener it did not ask for would
-// fail somewhere it could not explain.
-fn accept_within(
-    listener: &TcpListener,
+/// A listener whose accept [`accept_within`] can bound: a TCP listener, a
+/// Unix domain socket's, a Windows named pipe's.
+pub trait Acceptor {
+    /// What one accept hands back.
+    type Accepted;
+
+    /// One accept, blocking or not as the listener is set.
+    ///
+    /// # Errors
+    /// `WouldBlock` where the listener is non-blocking and nobody is there.
+    fn accept_now(&self) -> io::Result<Self::Accepted>;
+
+    /// Put the listener into non-blocking mode, or back out of it.
+    ///
+    /// # Errors
+    /// Where the operating system refused.
+    fn nonblocking(&self, nonblocking: bool) -> io::Result<()>;
+
+    /// Hand an accepted connection back blocking, whatever it inherited.
+    ///
+    /// # Errors
+    /// Where the operating system refused.
+    fn settle(accepted: &Self::Accepted) -> io::Result<()>;
+
+    /// Wait until a peer is there to accept, or `within` has passed.
+    ///
+    /// # Errors
+    /// Where the wait itself failed.
+    fn wait_ready(&self, within: Duration) -> io::Result<()>;
+}
+
+impl Acceptor for TcpListener {
+    type Accepted = (TcpStream, SocketAddr);
+
+    fn accept_now(&self) -> io::Result<Self::Accepted> {
+        // bounded: the caller's, accept_within's deadline or its None arm
+        self.accept()
+    }
+
+    fn nonblocking(&self, nonblocking: bool) -> io::Result<()> {
+        self.set_nonblocking(nonblocking)
+    }
+
+    fn settle((stream, _): &Self::Accepted) -> io::Result<()> {
+        stream.set_nonblocking(false)
+    }
+
+    fn wait_ready(&self, within: Duration) -> io::Result<()> {
+        readable(self, within)
+    }
+}
+
+#[cfg(unix)]
+impl Acceptor for std::os::unix::net::UnixListener {
+    type Accepted = (
+        std::os::unix::net::UnixStream,
+        std::os::unix::net::SocketAddr,
+    );
+
+    fn accept_now(&self) -> io::Result<Self::Accepted> {
+        // bounded: the caller's, accept_within's deadline or its None arm
+        self.accept()
+    }
+
+    fn nonblocking(&self, nonblocking: bool) -> io::Result<()> {
+        self.set_nonblocking(nonblocking)
+    }
+
+    fn settle((stream, _): &Self::Accepted) -> io::Result<()> {
+        stream.set_nonblocking(false)
+    }
+
+    fn wait_ready(&self, within: Duration) -> io::Result<()> {
+        readable(self, within)
+    }
+}
+
+/// Block until `source` has something to read — for a listener, a peer to
+/// accept — or `within` passes: the operating system's own wait, poll(2)
+/// or `WSAPoll`, so an arrival is taken the moment it lands.
+fn readable(source: &impl rustix::fd::AsFd, within: Duration) -> io::Result<()> {
+    // A wait too long to write is a year: the deadline ends it long before.
+    let year = Duration::from_hours(365 * 24);
+    let timeout = rustix::event::Timespec::try_from(within.min(year))
+        .map_err(|_| io::Error::from(ErrorKind::InvalidInput))?;
+    let mut ready = [rustix::event::PollFd::new(
+        source,
+        rustix::event::PollFlags::IN,
+    )];
+    rustix::event::poll(&mut ready, Some(&timeout))?;
+    Ok(())
+}
+
+/// Accept one connection on `listener` within `timeout`; `None` waits as
+/// long as it takes, which is what a listening Receive Location does.
+/// `nobody` says what did not happen, in the failure: *nothing connected*,
+/// *no writer came*.
+///
+/// The one bounded accept in the estate. Until 2026-09-27 the capability,
+/// the named pipe and the Unix domain socket each polled a non-blocking
+/// accept with a two-millisecond nap between tries, so a connection that
+/// arrived waited up to two milliseconds for nothing. This waits on the
+/// listener's readiness instead and takes the connection as it lands. The
+/// listener is non-blocking while it waits, so a peer that vanishes between
+/// readiness and accept is a `WouldBlock` and another wait, never a hang;
+/// it is handed back blocking on every way out, error ways included,
+/// because it belongs to the caller.
+///
+/// # Errors
+/// Where nothing arrived within `timeout` (retryable), the accept failed,
+/// or the listener's mode could not be set.
+pub fn accept_within<A: Acceptor>(
+    listener: &A,
     timeout: Option<Duration>,
-) -> Result<(TcpStream, SocketAddr)> {
+    nobody: &str,
+) -> Result<A::Accepted> {
     let Some(timeout) = timeout else {
         return listener
             // bounded: the None arm: a listening Receive Location waits as long as it runs
-            .accept()
+            .accept_now()
             .map_err(|e| classify("accepting a connection", &e));
     };
-
     listener
-        .set_nonblocking(true)
+        .nonblocking(true)
         .map_err(|e| classify("waiting for a connection", &e))?;
-
     let deadline = Instant::now() + timeout;
     let accepted = loop {
-        // bounded: polled non-blocking, inside the deadline above
-        match listener.accept() {
-            Ok(pair) => break Ok(pair),
+        // bounded: non-blocking, each wait inside the deadline above
+        match listener.accept_now() {
+            Ok(accepted) => break Ok(accepted),
             Err(error) if error.kind() == ErrorKind::WouldBlock => {
-                if Instant::now() >= deadline {
+                let left = deadline.saturating_duration_since(Instant::now());
+                if left.is_zero() {
                     break Err(TransportError::retryable(format!(
-                        "nothing connected within {} ms",
+                        "{nobody} within {} ms",
                         timeout.as_millis()
                     ))
                     .at("accepting a connection"));
                 }
-                std::thread::sleep(Duration::from_millis(2));
+                match listener.wait_ready(left) {
+                    Err(error) if error.kind() != ErrorKind::Interrupted => {
+                        break Err(classify("waiting for a connection", &error));
+                    }
+                    _ => {}
+                }
             }
             Err(error) => break Err(classify("accepting a connection", &error)),
         }
     };
-
     listener
-        .set_nonblocking(false)
+        .nonblocking(false)
         .map_err(|e| classify("waiting for a connection", &e))?;
-
-    let (stream, peer) = accepted?;
-
-    stream
-        .set_nonblocking(false)
-        .map_err(|e| classify("settling the accepted connection", &e))?;
-
-    Ok((stream, peer))
+    let accepted = accepted?;
+    A::settle(&accepted).map_err(|e| classify("settling the accepted connection", &e))?;
+    Ok(accepted)
 }
 
-/// Connect to `target` within `timeout`, with `timeout` on the reads.
-/// `None` waits as long as the operating system does.
+/// Connect to `target` within `timeout`, with `timeout` on the reads and
+/// writes: every address `target` resolves to, in turn, inside the one
+/// deadline (`net::connect`, the estate's one TCP connect). `None` waits
+/// as long as the operating system does.
 ///
 /// The connect is bounded as well as the reads, for the reason
 /// [`accept_tcp`] is: an unbounded wait turns a failure into a hang, and a
@@ -115,29 +225,10 @@ fn accept_within(
 /// out of ephemeral ports waits longer still with nothing to show for it.
 ///
 /// # Errors
-/// Where the peer refused, could not be reached within `timeout`, or the
-/// target does not resolve — retryable, as a connection refused is.
+/// Where the peer refused or could not be reached within `timeout` —
+/// retryable, as a connection refused is — or the target does not resolve.
 pub fn connect_tcp(target: &str, timeout: Option<Duration>) -> Result<TcpStream> {
-    let stream = match timeout {
-        // bounded: the None arm: unbounded only when the caller asks for it
-        None => TcpStream::connect(target).map_err(|e| classify("connecting to the peer", &e))?,
-        Some(within) => {
-            let address = target
-                .to_socket_addrs()
-                .map_err(|e| classify("resolving the peer", &e))?
-                .next()
-                .ok_or_else(|| {
-                    TransportError::permanent(format!("{target} names no address"))
-                        .at("connecting to the peer")
-                })?;
-
-            TcpStream::connect_timeout(&address, within)
-                .map_err(|e| classify("connecting to the peer", &e))?
-        }
-    };
-
-    settle(&stream, timeout)?;
-    Ok(stream)
+    Ok(net::connect(target, timeout)?)
 }
 
 /// Apply `timeout` to a connection's reads; `None` waits forever.
@@ -252,6 +343,39 @@ mod tests {
     }
 
     #[test]
+    fn a_connection_is_accepted_as_it_lands_not_after_a_nap() {
+        // Each round the accept is waiting before the peer connects, so a
+        // polled accept napped once a round; a readiness wait does not.
+        // Until 2026-09-27 the nap was two milliseconds, and a hundred
+        // rounds took two hundred.
+        const ROUNDS: u32 = 100;
+        let (listener, address) = bind_tcp("127.0.0.1:0").expect("bind");
+        let (go, went) = std::sync::mpsc::channel::<()>();
+        let peer = std::thread::spawn(move || {
+            for _ in 0..ROUNDS {
+                went.recv().expect("go");
+                let mut stream = connect_tcp(&address, Some(Duration::from_secs(5))).expect("c");
+                let mut back = [0u8; 1];
+                std::io::Read::read_exact(&mut stream, &mut back).expect("answered");
+            }
+        });
+        let mut waited = Duration::ZERO;
+        for _ in 0..ROUNDS {
+            go.send(()).expect("go");
+            let began = Instant::now();
+            let (mut stream, _) =
+                accept_tcp(&listener, Some(Duration::from_secs(5))).expect("accepted");
+            waited += began.elapsed();
+            stream.write_all(b"x").expect("answer");
+        }
+        peer.join().expect("peer");
+        assert!(
+            waited < Duration::from_millis(u64::from(ROUNDS)),
+            "{ROUNDS} accepts waited {waited:?}, over a millisecond each"
+        );
+    }
+
+    #[test]
     fn a_listener_is_blocking_again_after_a_bounded_accept() {
         // The listener is the caller's. A non-blocking one handed back would
         // fail in whatever the caller did next, far from here.
@@ -287,6 +411,7 @@ mod tests {
             stream.read_timeout().expect("timeout"),
             Some(Duration::from_secs(2))
         );
+        assert!(stream.nodelay().expect("nodelay"), "Nagle's algorithm off");
         let (mut reader, mut writer) = split(stream).expect("split");
         let mut line = String::new();
         reader.read_line(&mut line).expect("read");
