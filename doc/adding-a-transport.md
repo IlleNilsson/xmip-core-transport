@@ -26,6 +26,41 @@ pub trait Transport {
 }
 ```
 
+And `Configured` (`.src/configured.rs`) beside it: the settings the
+technology takes beyond the Location's address, declared once, and the one
+constructor that takes what that declaration read (ADR-0064, amendment
+2026-09-26):
+
+```rust
+impl Configured for KafkaTransport {
+    const SETTINGS: &'static Settings = &Settings {
+        technology: env!("CARGO_PKG_NAME"),
+        settings: &[Setting {
+            name: "topic",
+            kind: Kind::Text,
+            presence: Presence::Required,
+            meaning: "The topic a Receive Location reads and a Send Location writes.",
+            applies: Applies::Both,
+        }],
+    };
+
+    fn configured(address: &str, settings: &Read) -> Result<Self> {
+        Ok(Self::new(address, settings.text("topic")))
+    }
+}
+```
+
+The declaration is the technology's documentation, its form in VS Code and
+the desktop editor, and what `configure` holds a Location's `settings` table
+to at start; `open` reads a Location through it and calls `configured`. So:
+never parse a setting by hand, write a default once — a constant the code
+already holds is `Fixed::Duration(TIMEOUT)` or `Fixed::Integer(…)`, never
+the value again — and declare a setting on the side that reads it. A secret
+is never a setting: the Location's `credentials` names it. A technology that
+takes nothing beyond its address declares `Settings::none(env!("CARGO_PKG_NAME"))`.
+Its test holds the declaration sound (`SETTINGS.problems()` is empty) and
+builds from a Location through `open`.
+
 Never bring a protocol name into the transport *capability* — protocol code
 lives only in its own technology repository. That is the rule that keeps the
 base protocol-agnostic, and what two technologies both need goes up into this
@@ -42,6 +77,7 @@ name = "xmip-core-transport-<name>"
 
 [dependencies]
 transport = { package = "xmip-core-transport", git = "…", branch = "main" }
+xcore = { package = "xmip-core", git = "…", branch = "main" }  # the settings shape
 ```
 
 Implement the trait in `src/lib.rs`. Keep `receive` honest: *nothing there is

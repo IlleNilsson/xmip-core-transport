@@ -21,6 +21,8 @@
 //!   error.rs            failure, and whether saying it again would help
 //!   ceiling.rs          a payload against the most a protocol carries, and the refusal
 //!   claim.rs            one holder of a collidable artefact at a time
+//!   configured.rs       the settings a technology declares, and the one way a
+//!                       Location's address and settings build it (ADR-0064)
 //!   loopback.rs         a transport that is both ends of one exchange, with its
 //!                       ceiling and refusals; what the Playground drives (ADR-0051);
 //!                       both ends on two threads, and the poke that releases a far end
@@ -37,7 +39,8 @@
 //!   stuffed.rs          the dot-stuffed block mail speaks: smtp, pop3
 //!   xml.rs              the flat-XML scan a protocol document is
 //!   label.rs            the label-and-pointer form of a DNS name: dns, mdns
-//!   sql.rs              the one INSERT, the verb and the fixed table a SQL far end serves
+//!   sql.rs              the one INSERT, the verb, the fixed table a SQL far end serves, and
+//!                       the declared payload column: binary, or text in its Unicode form
 //!   technology.rs       what each technology is built on, and what reuses it
 //!
 //! The byte cursor and writer, hex, the CRCs and the varint every binary
@@ -47,6 +50,8 @@
 //!
 //! test support          compiled for tests only, `test-support` from a dev-dependency
 //!   payload.rs          the edge and sized payloads a loopback round is exercised with
+//!   latency.rs          a round's median, p99 and worst, and a plain loopback TCP
+//!                       wake beside it: near real time, apart from load
 //! ```
 //!
 //! *`technology.rs` arrived here on 2026-08-26 from the root's
@@ -64,10 +69,13 @@ pub mod arrived;
 pub mod bound;
 pub mod ceiling;
 pub mod claim;
+pub mod configured;
 pub mod direction;
 pub mod error;
 pub mod held;
 pub mod label;
+#[cfg(any(test, feature = "test-support"))]
+pub mod latency;
 pub mod line;
 pub mod listening;
 pub mod loopback;
@@ -84,6 +92,7 @@ pub mod xml;
 
 pub use arrived::Arrived;
 pub use claim::{Artefact, Claimed, NoNativeClaim, ResourceClaim};
+pub use configured::Configured;
 pub use direction::Directions;
 pub use error::{Result, TransportError};
 pub use listening::{Accepting, Listening};
