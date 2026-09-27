@@ -84,6 +84,18 @@ Implement the trait in `src/lib.rs`. Keep `receive` honest: *nothing there is
 not an error* — an absent source returns an empty vector. `cargo test` and
 `cargo clippy --all-targets -- -D warnings` pass before the change lands.
 
+Keep `send` to one exchange on a session opened once: a protocol that
+connects, handshakes or logs in holds its sessions in a `transport::Pool`
+field, keyed by the address a target names, and implements
+`transport::Pooled` for its client — `pool::alive` on the socket where
+nothing else says the far end hung up. A session that fails on reuse is
+replaced and the exchange goes again, so a send is at least once. The far
+end that serves a send takes the exchange and does not wait for a goodbye:
+the near end keeps its session. A user and a password are the capability's
+`Login`, never a type of the technology's own. Only a protocol that frames
+a Stream by the connection itself — raw TCP, closed to end it — connects
+per message, and says why.
+
 ## Prove it
 
 A transport is its own far end (ADR-0051): the technology ships the

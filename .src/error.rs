@@ -1,66 +1,18 @@
 //! Failure, and the one fact resilience needs from it.
 
-use std::fmt;
 use std::io;
 
-/// A transport failure.
-///
-/// `retryable` mirrors `XMIP_IS_RETRYABLE`: it is a property **of the failure**,
-/// not of the call site, so `xmip-core-resilience` can decide what to do without
-/// knowing which implementation produced it.
-#[derive(Debug)]
-pub struct TransportError {
-    pub message: String,
-    pub retryable: bool,
-}
-
-impl TransportError {
-    /// A failure worth trying again. A blip, a timeout, a reset.
-    #[must_use]
-    pub fn retryable(message: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-            retryable: true,
-        }
-    }
-
-    /// A failure that will say the same thing next time.
-    #[must_use]
-    pub fn permanent(message: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-            retryable: false,
-        }
-    }
-
-    /// The same failure, said from where it was met: `"<where>: <message>"`.
+xcore::declare_retryable_error!(
+    /// A transport failure.
     ///
-    /// Retryability is the failure's own property and survives the wrapping.
-    /// Writing `format!("{error}")` into a new failure instead loses it — a
-    /// timeout becomes permanent, and resilience stops retrying what it
-    /// should retry — and doubles the judgement in the text, which is how it
-    /// was found: a Linux run read *(retryable) (not retryable)* on one line
-    /// (2026-09-19).
-    #[must_use]
-    pub fn at(mut self, where_met: &str) -> Self {
-        self.message = format!("{where_met}: {}", self.message);
-        self
-    }
-}
-
-impl fmt::Display for TransportError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let judgement = if self.retryable {
-            "retryable"
-        } else {
-            "not retryable"
-        };
-
-        write!(f, "{} ({judgement})", self.message)
-    }
-}
-
-impl std::error::Error for TransportError {}
+    /// `retryable` mirrors `XMIP_IS_RETRYABLE`: it is a property **of the
+    /// failure**, not of the call site, so `xmip-core-resilience` can decide
+    /// what to do without knowing which implementation produced it. The shape
+    /// is `xcore::Failure`'s, declared once in `xmip-core`; this crate names
+    /// it so its dependencies' errors convert into it, and it converts into
+    /// `xcore::Failure` — the failure the guards judge — retryable as it was.
+    TransportError
+);
 
 pub type Result<T> = std::result::Result<T, TransportError>;
 
@@ -162,19 +114,6 @@ impl From<xcore::settings::Refused> for TransportError {
     }
 }
 
-/// The failure as the resilience guards judge an attempt: retryable as it
-/// was. The one fact resilience needs from a transport, handed over here
-/// once rather than by each technology whose attempt a guard decides.
-impl From<TransportError> for resilience::Failure {
-    fn from(error: TransportError) -> Self {
-        if error.retryable {
-            Self::retryable(error.message)
-        } else {
-            Self::permanent(error.message)
-        }
-    }
-}
-
 /// A peer that broke the protocol. Saying it again will not help.
 #[must_use]
 pub fn protocol_error(message: impl Into<String>) -> TransportError {
@@ -199,11 +138,11 @@ mod tests {
 
     #[test]
     fn a_guard_judges_a_transport_failure_as_retryable_as_it_was() {
-        let blip = resilience::Failure::from(TransportError::retryable("reset"));
-        let refused = resilience::Failure::from(TransportError::permanent("403"));
-        assert!(blip.is_retryable());
-        assert_eq!(blip.reason, "reset");
-        assert!(!refused.is_retryable());
+        let blip = xcore::Failure::from(TransportError::retryable("reset"));
+        let refused = xcore::Failure::from(TransportError::permanent("403"));
+        assert!(blip.retryable);
+        assert_eq!(blip.message, "reset");
+        assert!(!refused.retryable);
     }
 
     #[test]

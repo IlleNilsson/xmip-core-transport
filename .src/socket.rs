@@ -137,16 +137,33 @@ impl Acceptor for std::os::unix::net::UnixListener {
 /// accept — or `within` passes: the operating system's own wait, poll(2)
 /// or `WSAPoll`, so an arrival is taken the moment it lands.
 fn readable(source: &impl rustix::fd::AsFd, within: Duration) -> io::Result<()> {
+    ready(&[source.as_fd()], Some(within)).map(drop)
+}
+
+/// Block until one of `sources` has something to read, or has hung up, or
+/// `within` passes (`None` waits as long as it takes): which of them did,
+/// in the order given. One wait over a listener and the connections kept
+/// on it is how a Receive Location takes whichever peer spoke first
+/// ([`crate::serving`]).
+///
+/// # Errors
+/// Where the wait itself failed.
+pub(crate) fn ready(
+    sources: &[rustix::fd::BorrowedFd<'_>],
+    within: Option<Duration>,
+) -> io::Result<Vec<bool>> {
     // A wait too long to write is a year: the deadline ends it long before.
     let year = Duration::from_hours(365 * 24);
-    let timeout = rustix::event::Timespec::try_from(within.min(year))
+    let timeout = within
+        .map(|within| rustix::event::Timespec::try_from(within.min(year)))
+        .transpose()
         .map_err(|_| io::Error::from(ErrorKind::InvalidInput))?;
-    let mut ready = [rustix::event::PollFd::new(
-        source,
-        rustix::event::PollFlags::IN,
-    )];
-    rustix::event::poll(&mut ready, Some(&timeout))?;
-    Ok(())
+    let mut polled: Vec<_> = sources
+        .iter()
+        .map(|source| rustix::event::PollFd::new(source, rustix::event::PollFlags::IN))
+        .collect();
+    rustix::event::poll(&mut polled, timeout.as_ref())?;
+    Ok(polled.iter().map(|one| !one.revents().is_empty()).collect())
 }
 
 /// Accept one connection on `listener` within `timeout`; `None` waits as
