@@ -33,11 +33,19 @@
 //!   held.rs             a far end in this process: a bus device, a radio's server, a pipe
 //!   standing.rs         in-process sessions stood up by address until taken
 //!
+//! the near ends         what a Receive Location keeps between its receives
+//!   kept.rs             a listener or socket bound on the first receive and kept
+//!   serving.rs          a kept listener and the connections its peers keep open on
+//!                       it, the next exchange taken from whichever speaks first
+//!
 //! shared machinery      what two technologies both need lives here (ADR-0044)
 //!   socket.rs           binding, accepting (waiting on readiness), connecting and
 //!                       splitting sockets; multicast
 //!   sender.rs           the datagram socket a UDP technology sends from, bound once
 //!                       per address family and kept
+//!   pool.rs             the sessions a transport keeps between sends, by address:
+//!                       opened and logged in once, reused, replaced when broken
+//!   login.rs            a user and the password it logs in with
 //!   stuffed.rs          the dot-stuffed block mail speaks: smtp, pop3
 //!   xml.rs              the flat-XML scan a protocol document is
 //!   label.rs            the label-and-pointer form of a DNS name: dns, mdns
@@ -76,16 +84,20 @@ pub mod configured;
 pub mod direction;
 pub mod error;
 pub mod held;
+pub mod kept;
 pub mod label;
 #[cfg(any(test, feature = "test-support"))]
 pub mod latency;
 pub mod line;
 pub mod listening;
+pub mod login;
 pub mod loopback;
 #[cfg(any(test, feature = "test-support"))]
 pub mod payload;
+pub mod pool;
 pub mod protocol;
 pub mod sender;
+pub mod serving;
 pub mod socket;
 pub mod sql;
 pub mod standing;
@@ -99,5 +111,7 @@ pub use configured::Configured;
 pub use direction::Directions;
 pub use error::{Result, TransportError};
 pub use listening::{Accepting, Listening};
+pub use login::Login;
 pub use loopback::{FarEnd, LOOPBACK_TIMEOUT, Loopback, UNBLOCK_TIMEOUT};
+pub use pool::{Pool, Pooled};
 pub use protocol::Transport;
