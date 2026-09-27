@@ -34,12 +34,12 @@
 //!   standing.rs         in-process sessions stood up by address until taken
 //!
 //! shared machinery      what two technologies both need lives here (ADR-0044)
-//!   wire.rs             the most a connection is read for
 //!   socket.rs           binding, accepting, connecting and splitting sockets; multicast
 //!   stuffed.rs          the dot-stuffed block mail speaks: smtp, pop3
 //!   xml.rs              the flat-XML scan a protocol document is
 //!   label.rs            the label-and-pointer form of a DNS name: dns, mdns
-//!   sql.rs              the one INSERT, the verb, the fixed table a SQL far end serves, and
+//!   sql.rs              a send target read, the one INSERT written with quoted identifiers
+//!                       and taken apart, the verb, the fixed table a SQL far end serves, and
 //!                       the declared payload column: binary, or text in its Unicode form
 //!   technology.rs       what each technology is built on, and what reuses it
 //!
@@ -87,7 +87,6 @@ pub mod sql;
 pub mod standing;
 pub mod stuffed;
 pub mod technology;
-pub mod wire;
 pub mod xml;
 
 pub use arrived::Arrived;
