@@ -154,6 +154,27 @@ impl From<net::NetError> for TransportError {
     }
 }
 
+/// A Location's settings its technology's declaration refused: the
+/// configuration's to change, so saying it again will not help.
+impl From<xcore::settings::Refused> for TransportError {
+    fn from(refused: xcore::settings::Refused) -> Self {
+        Self::permanent(refused.to_string())
+    }
+}
+
+/// The failure as the resilience guards judge an attempt: retryable as it
+/// was. The one fact resilience needs from a transport, handed over here
+/// once rather than by each technology whose attempt a guard decides.
+impl From<TransportError> for resilience::Failure {
+    fn from(error: TransportError) -> Self {
+        if error.retryable {
+            Self::retryable(error.message)
+        } else {
+            Self::permanent(error.message)
+        }
+    }
+}
+
 /// A peer that broke the protocol. Saying it again will not help.
 #[must_use]
 pub fn protocol_error(message: impl Into<String>) -> TransportError {
@@ -174,6 +195,15 @@ mod tests {
         let error = read_one(&[0x04, 0x05, 1]).expect_err("past the end");
         assert!(!error.retryable);
         assert!(error.message.contains("says 5 bytes"), "{}", error.message);
+    }
+
+    #[test]
+    fn a_guard_judges_a_transport_failure_as_retryable_as_it_was() {
+        let blip = resilience::Failure::from(TransportError::retryable("reset"));
+        let refused = resilience::Failure::from(TransportError::permanent("403"));
+        assert!(blip.is_retryable());
+        assert_eq!(blip.reason, "reset");
+        assert!(!refused.is_retryable());
     }
 
     #[test]

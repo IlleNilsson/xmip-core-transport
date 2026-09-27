@@ -61,3 +61,16 @@ tls = { package = "xmip-core-library-tls", git = "https://github.com/IlleNilsson
 # (`net::Endpoint`) writes `?`. The technologies depend on it themselves;
 # nothing re-exports it.
 net = { package = "xmip-core-library-net", git = "https://github.com/IlleNilsson/xmip-core-library-net", branch = "main" }
+# The attempt the resilience guards judge: this crate's error becomes
+# `resilience::Failure` by `From`, once, so a technology whose attempt a
+# guard decides — an Event carried at least once (ADR-0065) — writes
+# `?`. Resilience depends on nothing.
+resilience = { package = "xmip-core-resilience", git = "https://github.com/IlleNilsson/xmip-core-resilience", branch = "main" }
+# The settings declaration every technology writes (xcore::settings), read
+# through by `Configured` (configured.rs): the one shape a transport's and a
+# contract's settings share (ADR-0064, amendment 2026-09-26). The
+# technologies depend on it themselves; nothing re-exports it.
+xcore = { package = "xmip-core", git = "https://github.com/IlleNilsson/xmip-core", branch = "main" }
+
+[profile.dev.package."*"]
+opt-level = 3
