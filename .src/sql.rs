@@ -19,6 +19,7 @@
 
 use codec::sql::Delimiter;
 use codec::unicode::Form;
+use net::Target;
 use xcore::settings::{Applies, Fixed, Kind, Presence, Read, Setting};
 
 use crate::arrived::Arrived;
@@ -161,7 +162,7 @@ pub fn verb(sql: &str) -> String {
 /// `rest` after `word`, matched without regard to case; `None` where
 /// `rest` does not open with it.
 #[must_use]
-pub fn strip_word<'a>(rest: &'a str, word: &str) -> Option<&'a str> {
+fn strip_word<'a>(rest: &'a str, word: &str) -> Option<&'a str> {
     let rest = rest.trim_start();
     let head = rest.get(..word.len())?;
     head.eq_ignore_ascii_case(word).then(|| &rest[word.len()..])
@@ -209,26 +210,24 @@ impl Dialect {
         server: &'a str,
         catalog: &'a str,
     ) -> Result<Destination<'a>> {
-        let (server, path) = self
-            .schemes
-            .iter()
-            .find_map(|scheme| crate::socket::target(scheme, target))
-            .or_else(|| match target.split_once('/') {
-                Some((peer, path)) if peer.contains(':') => Some((peer, path)),
-                _ => None,
-            })
-            .unwrap_or((server, target));
-        let segments: Vec<&str> = path.split('/').collect();
+        let refused = || {
+            TransportError::permanent(format!(
+                "{target:?} is not {}/table/column or table/column",
+                self.catalog
+            ))
+        };
+        let (server, named) = match Target::naming_server(self.schemes, target) {
+            Some(named) => (named.authority(), named),
+            None => (server, Target::relative(target)),
+        };
+        let segments = named.segments().map_err(|_| refused())?;
         let (catalog, table, column) = match segments.as_slice() {
             [catalog, table, column] => (*catalog, *table, *column),
             [table, column] => (catalog, *table, *column),
-            _ => ("", "", ""),
+            _ => return Err(refused()),
         };
-        if [catalog, table, column].contains(&"") {
-            return Err(TransportError::permanent(format!(
-                "{target:?} is not {}/table/column or table/column",
-                self.catalog
-            )));
+        if catalog.is_empty() {
+            return Err(refused());
         }
         Ok(Destination {
             server,
@@ -262,7 +261,7 @@ impl Dialect {
     /// One identifier, bare or quoted with its closing delimiter doubled,
     /// and what follows it.
     #[must_use]
-    pub fn read_identifier<'a>(&self, rest: &'a str) -> Option<(String, &'a str)> {
+    fn read_identifier<'a>(&self, rest: &'a str) -> Option<(String, &'a str)> {
         let rest = rest.trim_start();
         if rest.starts_with(self.identifier.open) {
             return self.identifier.unquote_prefix(rest).ok();

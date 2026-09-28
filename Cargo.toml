@@ -40,12 +40,6 @@ tls = ["dep:tls"]
 test-support = []
 
 [dependencies]
-# technology.rs and nothing else. Standard library otherwise, which is what
-# makes this crate build on every target in deployment-model.md without a
-# cross-compilation story. TLS is xmip-core-library-tls since 2026-09-23, taken here
-# only for the conversion a technology needs, and only under this crate's own
-# tls feature.
-serde = { version = "1", features = ["derive"] }
 # XML character data, escaped and unescaped as every reader in the estate
 # does it.
 codec = { package = "xmip-core-library-codec", git = "https://github.com/IlleNilsson/xmip-core-library-codec", branch = "main" }
@@ -58,22 +52,20 @@ asn1 = { package = "xmip-core-library-asn1", git = "https://github.com/IlleNilss
 tls = { package = "xmip-core-library-tls", git = "https://github.com/IlleNilsson/xmip-core-library-tls", branch = "main", optional = true }
 # The network primitives, whose failures this crate's error takes with `From`,
 # so a technology that asks over HTTP (`net::http`) or reads a URL
-# (`net::Endpoint`) writes `?`. The technologies depend on it themselves;
-# nothing re-exports it.
+# (`net::Endpoint`) writes `?`; and the target a SQL dialect reads
+# (`net::Target`). The technologies depend on it themselves; nothing
+# re-exports it.
 net = { package = "xmip-core-library-net", git = "https://github.com/IlleNilsson/xmip-core-library-net", branch = "main" }
 # The readiness wait a bounded accept blocks on (socket.rs): poll(2), and
 # WSAPoll on Windows, behind a safe call. Only its `event` module; std has
 # no accept with a deadline, and the alternative was a nap and a retry.
 rustix = { version = "1", default-features = false, features = ["std", "event"] }
-# The attempt the resilience guards judge: this crate's error becomes
-# `resilience::Failure` by `From`, once, so a technology whose attempt a
-# guard decides — an Event carried at least once (ADR-0065) — writes
-# `?`. Resilience depends on nothing.
-resilience = { package = "xmip-core-resilience", git = "https://github.com/IlleNilsson/xmip-core-resilience", branch = "main" }
 # The settings declaration every technology writes (xcore::settings), read
 # through by `Configured` (configured.rs): the one shape a transport's and a
-# contract's settings share (ADR-0064, amendment 2026-09-26). The
-# technologies depend on it themselves; nothing re-exports it.
+# contract's settings share (ADR-0064, amendment 2026-09-26); and the failure
+# the resilience guards judge, `xcore::Failure`, which this crate's error
+# becomes by `From`, retryable as it was. The technologies depend on it
+# themselves; nothing re-exports it.
 xcore = { package = "xmip-core", git = "https://github.com/IlleNilsson/xmip-core", branch = "main" }
 
 [profile.dev.package."*"]
