@@ -1,12 +1,15 @@
-//! The sessions a transport keeps between sends: opened and logged in on
-//! the first send to an address, taken for one exchange and put back after,
+//! The sessions a transport keeps between exchanges: opened and logged in
+//! on the first send to an address, or the first receive of a Receive
+//! Location that connects out, taken for one exchange and put back after,
 //! and replaced when the far end closed one meanwhile.
 //!
 //! One pool, whatever a session is: an HTTP connection, an MQTT client, an
 //! AMQP channel, a Postgres connection. Until 2026-09-27 twenty broker, SQL,
 //! file-share and plant technologies connected, logged in and closed for
 //! every message they sent, and HTTP alone kept its connections, in a pool
-//! of its own.
+//! of its own; until 2026-09-28 their receives did the same for every poll.
+//! A subscription a receive keeps is drained by [`delivered`], which tells
+//! a quiet one from a broken one.
 
 use std::borrow::Borrow;
 use std::collections::BTreeMap;
@@ -177,6 +180,37 @@ pub fn alive(stream: &TcpStream) -> bool {
     stream.set_nonblocking(false).is_ok() && open
 }
 
+/// What a kept subscription delivers until it goes quiet: `next` asked for
+/// one delivery after another on `session`, until the far end closes
+/// (`None`) or nothing comes within the session's timeout.
+///
+/// A timeout on a subscription the far end still holds is quiet, not a
+/// failure: the session is kept, subscribed, for the next receive, and what
+/// arrived meanwhile waits for it at the far end or in the socket. A
+/// failure after something arrived hands over what did — the session is
+/// let go by [`Pooled::usable`] when it is put back — rather than lose it.
+///
+/// # Errors
+/// Where `next` failed before anything arrived and the session cannot
+/// carry another exchange, or failed for good: [`Pool::exchange`] then
+/// goes again on a new session where this one was kept.
+pub fn delivered<S: Pooled, T>(
+    session: &mut S,
+    mut next: impl FnMut(&mut S) -> Result<Option<T>>,
+) -> Result<Vec<T>> {
+    let mut arrived = Vec::new();
+    loop {
+        match next(session) {
+            Ok(Some(one)) => arrived.push(one),
+            Ok(None) => return Ok(arrived),
+            Err(error) if error.retryable && (!arrived.is_empty() || session.usable()) => {
+                return Ok(arrived);
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -305,5 +339,40 @@ mod tests {
         );
         assert!(failed.is_err());
         assert!(pool.all().get(&2).is_none_or(Vec::is_empty));
+    }
+
+    #[test]
+    fn a_quiet_subscription_is_kept_and_a_broken_one_is_not() {
+        /// Delivers what it holds, then waits out its timeout; open or not.
+        struct Subscribed(Vec<u8>, bool);
+        impl Pooled for Subscribed {
+            fn usable(&mut self) -> bool {
+                self.1
+            }
+        }
+        let next = |session: &mut Subscribed| match session.0.pop() {
+            Some(one) => Ok(Some(one)),
+            None => Err(TransportError::retryable("timed out")),
+        };
+        let pool: Pool<Subscribed, u8> = Pool::new();
+        for _ in 0..5 {
+            let quiet = pool
+                .exchange(
+                    &1,
+                    || Ok(Subscribed(vec![2, 1], true)),
+                    |s| delivered(s, next),
+                )
+                .expect("quiet");
+            assert!(quiet.len() <= 2);
+        }
+        assert_eq!(pool.opened(), 1, "a quiet subscription is kept");
+        // Closed after one delivery: that one is handed over, not lost.
+        let mut closing = Subscribed(vec![7], false);
+        assert_eq!(delivered(&mut closing, next).expect("one"), [7]);
+        // Closed before any: a failure, so the pool opens a new one.
+        let broken = delivered(&mut Subscribed(Vec::new(), false), next);
+        assert!(broken.expect_err("broken").retryable);
+        let ended = delivered(&mut Subscribed(Vec::new(), false), |_| Ok(None::<u8>));
+        assert!(ended.expect("the far end closed").is_empty());
     }
 }

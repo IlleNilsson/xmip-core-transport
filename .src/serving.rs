@@ -27,7 +27,7 @@ use crate::socket;
 /// The most connections kept open at once. One more accepted lets the one
 /// kept longest go, so a crowd of idle peers costs a bounded number of
 /// sockets; a peer let go connects again.
-pub const MOST_KEPT: usize = 64;
+const MOST_KEPT: usize = 64;
 
 /// A connection a peer keeps open between exchanges.
 pub trait Open: Send {

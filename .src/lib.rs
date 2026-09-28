@@ -19,7 +19,6 @@
 //!   direction.rs        which directions an implementation supports
 //!   arrived.rs          one Stream, and where it came from; the next or the one arrival
 //!   error.rs            failure, and whether saying it again would help
-//!   ceiling.rs          a payload against the most a protocol carries, and the refusal
 //!   claim.rs            one holder of a collidable artefact at a time
 //!   configured.rs       the settings a technology declares, and the one way a
 //!                       Location's address and settings build it (ADR-0064)
@@ -43,16 +42,14 @@
 //!                       splitting sockets; multicast
 //!   sender.rs           the datagram socket a UDP technology sends from, bound once
 //!                       per address family and kept
-//!   pool.rs             the sessions a transport keeps between sends, by address:
-//!                       opened and logged in once, reused, replaced when broken
+//!   pool.rs             the sessions a transport keeps between sends and receives,
+//!                       by address: opened and logged in once, reused, replaced
+//!                       when broken; a kept subscription drained until quiet
 //!   login.rs            a user and the password it logs in with
 //!   stuffed.rs          the dot-stuffed block mail speaks: smtp, pop3
-//!   xml.rs              the flat-XML scan a protocol document is
-//!   label.rs            the label-and-pointer form of a DNS name: dns, mdns
 //!   sql.rs              a send target read, the one INSERT written with quoted identifiers
 //!                       and taken apart, the verb, the fixed table a SQL far end serves, and
 //!                       the declared payload column: binary, or text in its Unicode form
-//!   technology.rs       what each technology is built on, and what reuses it
 //!
 //! The byte cursor and writer, hex, the CRCs and the varint every binary
 //! technology frames with are encoding primitives, not transport: they live in
@@ -65,11 +62,6 @@
 //!                       wake beside it: near real time, apart from load
 //! ```
 //!
-//! *`technology.rs` arrived here on 2026-08-26 from the root's
-//! `transport_technology.rs` and was never declared, so it has never compiled.
-//! Declared 2026-08-27 during this split — which is also the only reason serde
-//! is a dependency.*
-//!
 //! **Nothing here names a protocol.** Each transport technology is its own
 //! repository (ADR-0010 decision 3), mounted directly under this one — `file`,
 //! `tcp`, `udp`, `http`, `smtp`, `websocket` today — and depends on this crate,
@@ -78,14 +70,12 @@
 
 pub mod arrived;
 pub mod bound;
-pub mod ceiling;
 pub mod claim;
 pub mod configured;
 pub mod direction;
 pub mod error;
 pub mod held;
 pub mod kept;
-pub mod label;
 #[cfg(any(test, feature = "test-support"))]
 pub mod latency;
 pub mod line;
@@ -102,8 +92,6 @@ pub mod socket;
 pub mod sql;
 pub mod standing;
 pub mod stuffed;
-pub mod technology;
-pub mod xml;
 
 pub use arrived::Arrived;
 pub use claim::{Artefact, Claimed, NoNativeClaim, ResourceClaim};

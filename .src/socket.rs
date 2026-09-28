@@ -1,8 +1,9 @@
 //! Opening sockets the way every TCP and UDP technology opens them: bind
 //! and report the address actually assigned, accept or connect with the
 //! read timeout applied, split a connection into a buffered reader and a
-//! writer, and read a `scheme://authority/path` target. Datagrams are sent
-//! from a socket bound once ([`crate::sender`]).
+//! writer. Datagrams are sent from a socket bound once ([`crate::sender`]).
+//! A target a send names is read by `net::Target`; this file split one on
+//! its first slash, the query left in the path, until 2026-09-28.
 //!
 //! Twenty technologies wrote these same fifteen lines each before this
 //! file existed (2026-09-08). What a protocol does *with* the socket stays
@@ -322,15 +323,6 @@ pub fn bind_multicast(bind: &str, timeout: Option<Duration>) -> Result<(UdpSocke
     Ok((socket, local))
 }
 
-/// `scheme://authority/path` split into its authority and path, where
-/// `target` opens with `scheme://`; `None` where it does not, so the caller
-/// falls back to what it was configured with.
-#[must_use]
-pub fn target<'a>(scheme: &str, target: &'a str) -> Option<(&'a str, &'a str)> {
-    let rest = target.strip_prefix(scheme)?.strip_prefix("://")?;
-    Some(rest.split_once('/').unwrap_or((rest, "")))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -459,16 +451,5 @@ mod tests {
         assert!(multicast_group("nonsense").is_none());
         let (_, address) = bind_multicast("127.0.0.1:0", None).expect("unicast");
         assert!(address.starts_with("127.0.0.1:") && !address.ends_with(":0"));
-    }
-
-    #[test]
-    fn a_target_splits_on_its_scheme() {
-        assert_eq!(
-            target("mqtt", "mqtt://host:1883/a/b"),
-            Some(("host:1883", "a/b"))
-        );
-        assert_eq!(target("mqtt", "mqtt://host"), Some(("host", "")));
-        assert_eq!(target("mqtt", "nats://host/x"), None);
-        assert_eq!(target("mqtt", "a/b"), None);
     }
 }
