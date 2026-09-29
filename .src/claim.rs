@@ -9,7 +9,7 @@ use crate::error::Result;
 
 /// One discrete claimable thing, addressed in its protocol's own terms.
 ///
-/// `sftp://partner.example/out/order-1.edi`, an S3 key, a blob path, a message
+/// `sftp://party.example/out/order-1.edi`, an S3 key, a blob path, a message
 /// uid in a mailbox.
 ///
 /// **Not `xcore::ArtifactId`**, and the near-collision is worth the
@@ -64,7 +64,7 @@ impl Claimed {
 ///
 /// **The endpoint is one thing however many nodes are asking.** A claim taken
 /// there is cluster-wide without a lease, a store, or anything for Xmip to keep
-/// consistent across nodes, because the shared write path is the partner's
+/// consistent across nodes, because the shared write path is the Party's
 /// storage rather than Xmip's:
 ///
 /// | family | native claim |
@@ -150,7 +150,7 @@ mod tests {
     #[test]
     fn a_protocol_with_artefacts_and_no_locking_says_so() {
         let ftp = NoNativeClaim;
-        let artefact = Artefact::new("sftp://partner.example/out/order-1.edi");
+        let artefact = Artefact::new("sftp://party.example/out/order-1.edi");
 
         assert!(ftp.is_available(&artefact).expect("asked"));
 
