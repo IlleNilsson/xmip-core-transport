@@ -107,6 +107,7 @@ impl<S: Pooled, K: Ord> Pool<S, K> {
             self.put_back(key, session);
             return Ok(done);
         }
+        self.let_go_unusable();
         let mut session = open()?;
         self.opened.fetch_add(1, Ordering::Relaxed);
         let done = exchange(&mut session)?;
@@ -123,6 +124,21 @@ impl<S: Pooled, K: Ord> Pool<S, K> {
 
     fn all(&self) -> MutexGuard<'_, BTreeMap<K, Vec<S>>> {
         self.kept.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Every kept session that can no longer carry an exchange let go, under
+    /// every key, and a key left with none forgotten: asked before a new
+    /// session is opened, so a pool holds no socket its far end has closed
+    /// for longer than until the next one it opens. A key that is never
+    /// asked for again — a far end at a port of its own, gone — would
+    /// otherwise keep its session for good, and until 2026-09-29 the
+    /// Playground's nodes kept one such socket a round, in `CLOSE_WAIT`,
+    /// until the machine was out of ephemeral ports.
+    fn let_go_unusable(&self) {
+        self.all().retain(|_, kept| {
+            kept.retain_mut(Pooled::usable);
+            !kept.is_empty()
+        });
     }
 
     /// A kept session for `key` that can still carry an exchange; the ones
@@ -169,15 +185,30 @@ impl<S: Pooled, K: Ord> Pool<S, K> {
 /// session that only writes cannot find this out by sending.
 #[must_use]
 pub fn alive(stream: &TcpStream) -> bool {
-    if stream.set_nonblocking(true).is_err() {
-        return false;
-    }
+    waiting(stream).is_some()
+}
+
+/// Whether the far end of `stream` still has it open and has sent nothing
+/// since it was last read: what an idle session whose far end speaks only
+/// when asked — an HTTP/1.1 server — must be to carry the next exchange.
+/// Anything waiting there is not an answer to it: a TLS `close_notify`, a
+/// timeout's `408`.
+#[must_use]
+pub fn quiet(stream: &TcpStream) -> bool {
+    waiting(stream) == Some(false)
+}
+
+/// What a look at `stream` finds without waiting: whether something waits
+/// to be read, or `None` where the far end closed or reset it.
+fn waiting(stream: &TcpStream) -> Option<bool> {
+    stream.set_nonblocking(true).ok()?;
     let mut one = [0u8; 1];
-    let open = match stream.peek(&mut one) {
-        Ok(read) => read > 0,
-        Err(error) => error.kind() == ErrorKind::WouldBlock,
+    let waiting = match stream.peek(&mut one) {
+        Ok(read) => (read > 0).then_some(true),
+        Err(error) => (error.kind() == ErrorKind::WouldBlock).then_some(false),
     };
-    stream.set_nonblocking(false).is_ok() && open
+    stream.set_nonblocking(false).ok()?;
+    waiting
 }
 
 /// What a kept subscription delivers until it goes quiet: `next` asked for
@@ -288,6 +319,50 @@ mod tests {
         assert_eq!(pool.opened(), 1);
         drop((pool, shared));
         assert_eq!(far_end.join().expect("far end"), 1);
+    }
+
+    #[test]
+    fn sessions_to_far_ends_that_hung_up_are_closed_not_kept() {
+        // The Playground, 2026-09-29: every round sent to a far end at a new
+        // port, the far end hung up after its exchange, and the pool kept
+        // the session under a key never asked for again — a socket in
+        // CLOSE_WAIT a round, until the machine had no ephemeral port left.
+        // A session is closed when this side's socket is: the far end then
+        // reads the end of the stream.
+        const ROUNDS: usize = 50;
+        let pool: Pool<Line> = Pool::new();
+        let mut far_ends = Vec::new();
+        for round in 0..ROUNDS {
+            let (listener, address) = socket::bind_tcp("127.0.0.1:0").expect("bind");
+            let far_end = std::thread::spawn(move || {
+                let (mut stream, _) =
+                    socket::accept_tcp(&listener, Some(Duration::from_secs(5))).expect("accept");
+                let mut one = [0u8; 1];
+                stream.read_exact(&mut one).expect("read");
+                stream.write_all(&one).expect("echoed");
+                stream.shutdown(std::net::Shutdown::Write).expect("hung up");
+                stream
+            });
+            let byte = u8::try_from(round).expect("a byte");
+            let back = pool
+                .exchange(&address, opener(&address), |line| echo(line, byte))
+                .expect("echoed");
+            assert_eq!(back, byte);
+            far_ends.push(far_end.join().expect("far end"));
+        }
+        assert_eq!(pool.opened(), ROUNDS);
+        // The last round or two may not have seen their hang-up yet.
+        for (round, mut stream) in far_ends.into_iter().take(ROUNDS - 2).enumerate() {
+            stream
+                .set_read_timeout(Some(Duration::from_secs(1)))
+                .expect("timeout");
+            let mut rest = [0u8; 1];
+            let read = stream.read(&mut rest);
+            assert!(
+                matches!(read, Ok(0)),
+                "round {round}: the pool still holds the session ({read:?})"
+            );
+        }
     }
 
     #[test]
