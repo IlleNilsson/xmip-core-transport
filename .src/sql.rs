@@ -4,7 +4,9 @@
 //! apart so a session can record what a client inserted without being a
 //! SQL parser; the verb of a statement;
 //! the one fixed table a session answers SELECTs from; and what the
-//! payload column holds, as a Location declares it.
+//! payload column holds, as a Location declares it. What a receive does
+//! with the rows its query read — each an arrival, consumed by the
+//! Location's `accept` statement after its cycle — is [`accept`].
 //!
 //! Which delimiters, the bytes literal and the escapes are the dialect
 //! (ADR-0044 clause 2): each technology keeps its own and hands them in,
@@ -22,8 +24,10 @@ use codec::unicode::Form;
 use net::Target;
 use xcore::settings::{Applies, Fixed, Kind, Presence, Read, Setting};
 
-use crate::arrived::Arrived;
 use crate::error::{Result, TransportError};
+use crate::taken::Taken;
+
+pub mod accept;
 
 /// The setting that says what the payload column holds.
 pub const COLUMN: Setting = Setting {
@@ -171,8 +175,9 @@ fn strip_word<'a>(rest: &'a str, word: &str) -> Option<&'a str> {
 /// What a SQL technology hands the capability so it can write and read the
 /// technology's one statement: the URI schemes a send target may open
 /// with, the word for what the segment before the table names, and how an
-/// identifier is written. Each technology declares its own as a constant
-/// and passes it; nothing here tells one dialect from another by name.
+/// identifier is written, and the marker of its first parameter. Each
+/// technology declares its own as a constant and passes it; nothing here
+/// tells one dialect from another by name.
 #[derive(Clone, Copy, Debug)]
 pub struct Dialect {
     /// The schemes a send target may open with: the technology's own and
@@ -184,6 +189,10 @@ pub struct Dialect {
     pub identifier: Delimiter,
     /// What a bare identifier takes besides letters and digits.
     pub bare: &'static [char],
+    /// The dialect's first parameter as a statement writes it — `$1`, `?`,
+    /// `@P1`, `:1` — which an `accept` statement names the row by
+    /// ([`accept::ACCEPT`]).
+    pub marker: &'static str,
 }
 
 /// Where a send puts its row: the server, the catalog (database or
@@ -322,7 +331,7 @@ pub fn table<C: ?Sized + ToOwned>(
 /// one.
 pub trait Inserted {
     /// The Stream, where this is an insert.
-    fn inserted(self) -> Option<Arrived>;
+    fn inserted(self) -> Option<Taken>;
 }
 
 /// The next value the client inserts, or `None` when it closed; every
@@ -332,7 +341,7 @@ pub trait Inserted {
 /// As `next`.
 pub fn next_insert<E: Inserted>(
     mut next: impl FnMut() -> crate::error::Result<Option<E>>,
-) -> crate::error::Result<Option<Arrived>> {
+) -> crate::error::Result<Option<Taken>> {
     loop {
         match next()? {
             Some(event) => {
@@ -354,6 +363,7 @@ mod tests {
         catalog: "database",
         identifier: Delimiter::BRACKET,
         bare: &['_', '.'],
+        marker: "@P1",
     };
 
     fn quoted(rest: &str) -> Option<(String, &str)> {
@@ -362,11 +372,11 @@ mod tests {
 
     enum Event {
         Selected,
-        Inserted(Arrived),
+        Inserted(Taken),
     }
 
     impl Inserted for Event {
-        fn inserted(self) -> Option<Arrived> {
+        fn inserted(self) -> Option<Taken> {
             match self {
                 Self::Inserted(arrived) => Some(arrived),
                 Self::Selected => None,
@@ -535,7 +545,7 @@ mod tests {
         assert_eq!(bytes, [[Some(vec![1u8, 2])]]);
         let mut events = vec![
             None,
-            Some(Event::Inserted(Arrived::new("sql://one", b"row"))),
+            Some(Event::Inserted(Taken::new("sql://one", b"row"))),
             Some(Event::Selected),
         ];
         let mut next = || Ok(events.pop().flatten());

@@ -12,9 +12,9 @@
 
 use std::net::UdpSocket;
 
-use crate::arrived::Arrived;
 use crate::error::Result;
 use crate::loopback::FarEnd;
+use crate::taken::Taken;
 
 /// What a technology does with the one exchange its far end reads.
 ///
@@ -28,14 +28,14 @@ pub trait Reading: Send {
     /// # Errors
     /// Where nothing arrived before the timeout, or what arrived was not
     /// the exchange the protocol expects.
-    fn take_one(self, socket: &UdpSocket) -> Result<Arrived>;
+    fn take_one(self, socket: &UdpSocket) -> Result<Taken>;
 }
 
 impl<F> Reading for F
 where
-    F: FnOnce(&UdpSocket) -> Result<Arrived> + Send,
+    F: FnOnce(&UdpSocket) -> Result<Taken> + Send,
 {
-    fn take_one(self, socket: &UdpSocket) -> Result<Arrived> {
+    fn take_one(self, socket: &UdpSocket) -> Result<Taken> {
         self(socket)
     }
 }
@@ -73,7 +73,7 @@ impl<T: Reading> FarEnd for Bound<T> {
         true
     }
 
-    fn take_one(self: Box<Self>) -> Result<Arrived> {
+    fn take_one(self: Box<Self>) -> Result<Taken> {
         let Self { taking, socket, .. } = *self;
         taking.take_one(&socket)
     }
@@ -95,7 +95,7 @@ mod tests {
                 let (read, peer) = socket
                     .recv_from(&mut buffer)
                     .map_err(|e| classify("receiving", &e))?;
-                Ok(Arrived::new(format!("udp://{peer}"), &buffer[..read]))
+                Ok(Taken::new(format!("udp://{peer}"), &buffer[..read]))
             },
             bound,
         ));

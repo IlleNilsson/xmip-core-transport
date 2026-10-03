@@ -1,5 +1,6 @@
 //! One protocol, both directions.
 
+use crate::arrivals::Arrivals;
 use crate::arrived::Arrived;
 use crate::claim::ResourceClaim;
 use crate::direction::Directions;
@@ -19,11 +20,29 @@ pub trait Transport {
 
     /// Take whatever has arrived. An empty vector when nothing has.
     ///
+    /// **Nothing is consumed here.** Each [`Arrived`] carries its body as a
+    /// reader and its far end's acknowledgement; the far end keeps what
+    /// arrived — the file in its directory, the message leased, the caller
+    /// waiting for its answer — until the runtime gives the acknowledgement
+    /// its verdict after the whole receive cycle (runtime-model section 5).
+    /// Where the technology's arrivals are [`Arrivals::Ordered`], the runtime
+    /// gives every arrival of one receive its verdict, in the order they
+    /// were handed back, before it receives again, and the technology may
+    /// rely on that; where they are [`Arrivals::Unordered`], it may be
+    /// asked again before earlier arrivals are told. One dropped without a verdict consumes nothing. A
+    /// protocol that cannot defer says so with
+    /// [`crate::Acknowledgement::at_most_once`] and in its README.
+    ///
     /// # Errors
     ///
     /// Where the endpoint could not be read. **Nothing there is not an error** —
     /// a drop directory that does not exist yet returns an empty vector.
     fn receive(&self) -> Result<Vec<Arrived>>;
+
+    /// Whether this technology's arrivals are told in order, before the
+    /// next receive, or each on its own, and why. No default: every
+    /// technology says, in its own words.
+    fn arrivals(&self) -> Arrivals;
 
     /// Deliver bytes to a target expressed in this protocol's own terms.
     ///

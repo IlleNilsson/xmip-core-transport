@@ -17,9 +17,9 @@
 
 use std::time::Duration;
 
-use crate::arrived::Arrived;
 use crate::error::{Result, protocol_error};
 use crate::protocol::Transport;
+use crate::taken::Taken;
 
 /// How long a far end waits on its near end before the round is judged
 /// rather than waited on: a lost datagram, a peer that never connects, a
@@ -51,7 +51,7 @@ pub trait FarEnd: Send {
     /// # Errors
     /// Where nothing arrived before the timeout, or what arrived could not be
     /// read.
-    fn take_one(self: Box<Self>) -> Result<Arrived>;
+    fn take_one(self: Box<Self>) -> Result<Taken>;
 }
 
 /// A transport that can be both ends of one exchange on this machine.
@@ -141,7 +141,7 @@ pub trait Loopback: Transport + Send + Sync {
     ///
     /// # Errors
     /// Where either end failed, with which one.
-    fn round(&self, payload: &[u8]) -> Result<Arrived> {
+    fn round(&self, payload: &[u8]) -> Result<Taken> {
         if self.exchanges_in_order() {
             return self.round_in_order(payload);
         }
@@ -172,7 +172,7 @@ pub trait Loopback: Transport + Send + Sync {
     /// # Errors
     /// Where either end failed, or what was taken back is not what was
     /// sent.
-    fn round_in_order(&self, payload: &[u8]) -> Result<Arrived> {
+    fn round_in_order(&self, payload: &[u8]) -> Result<Taken> {
         let far = self.far_end()?;
         self.send_to(far.address(), payload)?;
         let arrived = far.take_one()?;
@@ -261,11 +261,11 @@ mod tests {
             self.datagram
         }
 
-        fn take_one(self: Box<Self>) -> Result<Arrived> {
+        fn take_one(self: Box<Self>) -> Result<Taken> {
             let deadline = std::time::Instant::now() + LOOPBACK_TIMEOUT;
             loop {
                 if let Some(bytes) = self.letter.lock().expect("lock").take() {
-                    return Ok(Arrived::new("mailbox://one", bytes));
+                    return Ok(Taken::new("mailbox://one", bytes));
                 }
                 if std::time::Instant::now() > deadline {
                     return Err(protocol_error("nothing was dropped in the mailbox"));
@@ -284,15 +284,27 @@ mod tests {
             crate::direction::Directions::BOTH
         }
 
-        fn receive(&self) -> Result<Vec<Arrived>> {
-            Ok(self
-                .letter
-                .lock()
-                .expect("lock")
-                .take()
-                .map(|bytes| Arrived::new("mailbox://one", bytes))
-                .into_iter()
-                .collect())
+        fn arrivals(&self) -> crate::Arrivals {
+            crate::Arrivals::Ordered("one letter, read again until it is taken")
+        }
+
+        /// The letter, kept in the mailbox until it is accepted.
+        fn receive(&self) -> Result<Vec<crate::Arrived>> {
+            let Some(bytes) = self.letter.lock().expect("lock").clone() else {
+                return Ok(Vec::new());
+            };
+            let letter = Arc::clone(&self.letter);
+            let acknowledgement = crate::Acknowledgement::deferred(move |verdict| {
+                if verdict == crate::Verdict::Accepted {
+                    letter.lock().expect("lock").take();
+                }
+                Ok(())
+            });
+            Ok(vec![crate::Arrived::whole(
+                "mailbox://one",
+                bytes,
+                acknowledgement,
+            )])
         }
 
         fn send(&self, target: &str, bytes: &[u8]) -> Result<()> {
@@ -338,6 +350,17 @@ mod tests {
         let arrived = mailbox.round(b"ping").expect("round");
         assert_eq!(arrived.bytes, b"ping");
         assert_eq!(arrived.origin_uri, "mailbox://one");
+    }
+
+    #[test]
+    fn a_failed_receive_leaves_the_letter_and_an_accepted_one_takes_it() {
+        let mailbox = mailbox(false, false);
+        mailbox.send_to("mailbox", b"letter").expect("sent");
+        let refused = mailbox.receive().expect("received").remove(0);
+        refused.failed().expect("failed");
+        let again = mailbox.receive().expect("redelivered").remove(0);
+        assert_eq!(again.taken().expect("accepted").bytes, b"letter");
+        assert!(mailbox.receive().expect("received").is_empty(), "taken");
     }
 
     #[test]

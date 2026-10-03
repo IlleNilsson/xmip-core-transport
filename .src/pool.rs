@@ -19,7 +19,7 @@ use std::net::TcpStream;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use crate::error::Result;
+use crate::error::{Result, protocol_error};
 
 /// What a pool keeps: a session that can say whether it can carry another
 /// exchange.
@@ -111,6 +111,30 @@ impl<S: Pooled, K: Ord> Pool<S, K> {
         let mut session = open()?;
         self.opened.fetch_add(1, Ordering::Relaxed);
         let done = exchange(&mut session)?;
+        self.put_back(key, session);
+        Ok(done)
+    }
+
+    /// Run `act` on the session kept for `key`, never on a new one: what
+    /// answers a delivery — an ack, a reject, a `PUBACK` — belongs to the
+    /// session it came on. Where that session is gone, `gone` says what the
+    /// far end does instead (it delivers again), and nothing is opened. A
+    /// session `act` failed on is let go.
+    ///
+    /// # Errors
+    /// Where no session is kept for `key`, or as `act`.
+    pub fn kept<Q, T>(
+        &self,
+        key: &Q,
+        gone: &str,
+        act: impl FnOnce(&mut S) -> Result<T>,
+    ) -> Result<T>
+    where
+        K: Borrow<Q>,
+        Q: Ord + ToOwned<Owned = K> + ?Sized,
+    {
+        let mut session = self.take(key).ok_or_else(|| protocol_error(gone))?;
+        let done = act(&mut session)?;
         self.put_back(key, session);
         Ok(done)
     }
@@ -414,6 +438,30 @@ mod tests {
         );
         assert!(failed.is_err());
         assert!(pool.all().get(&2).is_none_or(Vec::is_empty));
+    }
+
+    #[test]
+    fn an_answer_goes_on_the_kept_session_or_not_at_all() {
+        struct Consumer(u8);
+        impl Pooled for Consumer {}
+        let pool: Pool<Consumer, u8> = Pool::new();
+        let gone = "the consumer is closed; the broker delivers it again";
+        let error = pool.kept(&1, gone, |_| Ok(())).expect_err("none kept");
+        assert_eq!((error.message.as_str(), error.retryable), (gone, false));
+        pool.exchange(&1, || Ok(Consumer(7)), |_| Ok(()))
+            .expect("received");
+        let acked = pool
+            .kept(&1, gone, |consumer| Ok(consumer.0))
+            .expect("acked");
+        assert_eq!((acked, pool.opened()), (7, 1), "never a new session");
+        let failed = pool.kept(&1, gone, |_| {
+            Err::<(), _>(TransportError::retryable("reset"))
+        });
+        assert!(failed.expect_err("failed").retryable);
+        assert!(
+            pool.kept(&1, gone, |_| Ok(())).is_err(),
+            "a failed one is let go"
+        );
     }
 
     #[test]

@@ -69,7 +69,7 @@ impl Claimed {
 ///
 /// | family | native claim |
 /// | --- | --- |
-/// | local file, SMB | share-mode open, mandatory on Windows, advisory on Unix |
+/// | file, local or shared | an atomic rename to a name recording the node and the time |
 /// | Azure Blob | a renewable blob lease |
 /// | S3 | `PUT` with `If-None-Match: *` on a claim key |
 /// | Google Cloud Storage | a generation precondition |
@@ -78,7 +78,9 @@ impl Claimed {
 ///
 /// It also answers what a lease could not: whether something **outside Xmip**
 /// holds the artefact. A file another process has open includes a producer
-/// still writing it.
+/// still writing it; where the claim cannot see a writer, as a rename
+/// cannot, the transport takes only what its stability check says is
+/// finished (ADR-0024 clause 5 and its amendment of 2026-09-26).
 ///
 /// ADR-0024 clause 4: **the artefact, not the location.** Two nodes may poll one
 /// directory at the same time and take different files.

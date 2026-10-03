@@ -14,10 +14,10 @@ use std::fmt;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
-use crate::arrived::Arrived;
 use crate::error::{Result, protocol_error};
 use crate::held::Held;
 use crate::loopback::FarEnd;
+use crate::taken::Taken;
 
 /// Numbers the sessions, so each address names one.
 static NEXT_SESSION: AtomicU64 = AtomicU64::new(1);
@@ -84,7 +84,7 @@ impl<S> Standing<S> {
     pub fn far_end<F>(&self, address: String, take: F) -> Box<dyn FarEnd>
     where
         S: Send + 'static,
-        F: FnOnce() -> Result<Arrived> + Send + 'static,
+        F: FnOnce() -> Result<Taken> + Send + 'static,
     {
         let standing = self.clone();
         let forgotten = address.clone();
@@ -122,7 +122,7 @@ mod tests {
         assert_ne!(first, second);
         assert!(first.starts_with("bus://loopback/"));
         assert_eq!(standing.session(&second).expect("stands"), 2);
-        let far = standing.far_end(first.clone(), || Ok(Arrived::new("bus://one", vec![1])));
+        let far = standing.far_end(first.clone(), || Ok(Taken::new("bus://one", vec![1])));
         assert_eq!(far.address(), first);
         assert_eq!(far.take_one().expect("take").bytes, [1]);
         let error = standing.session(&first).expect_err("forgotten");

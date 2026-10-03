@@ -16,6 +16,7 @@
 use xcore::settings::{Applies, Given, Read, Settings};
 
 use crate::error::Result;
+use crate::node::NodeLocation;
 use crate::protocol::Transport;
 
 /// A transport technology a Location can be configured with.
@@ -44,6 +45,22 @@ pub trait Configured: Transport + Sized {
         let read = Self::SETTINGS.read(side, given)?;
         Self::configured(address, &read)
     }
+
+    /// This transport on the node at `node`: what the runtime calls once,
+    /// as it builds a Location's transport, right after
+    /// [`Configured::open`] (the owner's *Option A*, 2026-10-03: the runtime
+    /// gives every transport its node's identity once, as it builds it,
+    /// `node.rs`). A technology
+    /// that records at the far end who holds what — a claimed file's name
+    /// (ADR-0024, amendment 2026-09-26) — keeps it, and returns there what
+    /// the node held before it last stopped. Nothing is kept by default.
+    ///
+    /// # Errors
+    /// Where the technology could not return what the node held before:
+    /// the far end could not be read.
+    fn on_node(self, _node: &NodeLocation) -> Result<Self> {
+        Ok(self)
+    }
 }
 
 #[cfg(test)]
@@ -67,6 +84,9 @@ mod tests {
         }
         fn receive(&self) -> Result<Vec<Arrived>> {
             Ok(Vec::new())
+        }
+        fn arrivals(&self) -> crate::Arrivals {
+            crate::Arrivals::Unordered("nothing ever arrives")
         }
         fn send(&self, _target: &str, _bytes: &[u8]) -> Result<()> {
             Ok(())
