@@ -89,7 +89,7 @@ impl<L> fmt::Debug for Kept<L> {
 /// Hold a receiver to its kept listener: `rounds` payloads sent to
 /// `address` — where the first receive, or the receiver's own `bound`,
 /// bound it — one after another by `send` on a thread of its own, and every
-/// one taken by `receiver.receive()` on this one, in order. A receiver that
+/// one taken by `receiver.receive()` on this one, in order, and accepted. A receiver that
 /// bound anew would listen somewhere else, and the sends it left behind
 /// would never arrive; one that dropped its listener between receives
 /// would refuse the sends that came between. For a technology's tests,
@@ -122,7 +122,9 @@ pub fn held_across_receives(
             let taken = receiver.receive().expect("received");
             empty = if taken.is_empty() { empty + 1 } else { 0 };
             assert!(empty < 3, "receives with nothing, after {arrived:?}");
-            arrived.extend(taken.into_iter().map(|one| one.bytes));
+            for one in taken {
+                arrived.push(one.taken().expect("accepted").bytes);
+            }
         }
         sending.join().expect("the sending thread");
         assert_eq!(arrived, payloads);

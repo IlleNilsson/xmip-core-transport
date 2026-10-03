@@ -13,10 +13,10 @@
 
 use std::net::TcpListener;
 
-use crate::arrived::Arrived;
 use crate::error::Result;
 use crate::loopback::FarEnd;
 use crate::socket;
+use crate::taken::Taken;
 
 /// What a technology does with the one exchange its far end accepts.
 ///
@@ -30,14 +30,14 @@ pub trait Accepting: Send {
     /// # Errors
     /// Where the connection could not be accepted, nothing arrived before
     /// the timeout, or the exchange was not the one the protocol expects.
-    fn take_one(self, listener: &TcpListener) -> Result<Arrived>;
+    fn take_one(self, listener: &TcpListener) -> Result<Taken>;
 }
 
 impl<F> Accepting for F
 where
-    F: FnOnce(&TcpListener) -> Result<Arrived> + Send,
+    F: FnOnce(&TcpListener) -> Result<Taken> + Send,
 {
-    fn take_one(self, listener: &TcpListener) -> Result<Arrived> {
+    fn take_one(self, listener: &TcpListener) -> Result<Taken> {
         self(listener)
     }
 }
@@ -77,7 +77,7 @@ impl<T: Accepting> FarEnd for Listening<T> {
         &self.address
     }
 
-    fn take_one(self: Box<Self>) -> Result<Arrived> {
+    fn take_one(self: Box<Self>) -> Result<Taken> {
         let Self {
             taking, listener, ..
         } = *self;
@@ -96,13 +96,13 @@ mod tests {
     struct Whole;
 
     impl Accepting for Whole {
-        fn take_one(self, listener: &TcpListener) -> Result<Arrived> {
+        fn take_one(self, listener: &TcpListener) -> Result<Taken> {
             let (mut stream, peer) = socket::accept_tcp(listener, Some(Duration::from_secs(2)))?;
             let mut bytes = Vec::new();
             stream
                 .read_to_end(&mut bytes)
                 .map_err(|e| crate::error::classify("reading", &e))?;
-            Ok(Arrived::new(format!("whole://{peer}"), bytes))
+            Ok(Taken::new(format!("whole://{peer}"), bytes))
         }
     }
 
@@ -133,15 +133,12 @@ mod tests {
             stream
                 .read_to_end(&mut served)
                 .map_err(|e| crate::error::classify("reading", &e))?;
-            Ok(Arrived::new("served://one", served))
+            Ok(Taken::new("served://one", served))
         };
         let far = Box::new(Listening::bound(taking, "127.0.0.1:0").expect("bind"));
         let sending = sent(far.address().to_string(), b"by closure");
         let arrived = far.take_one().expect("take");
         sending.join().expect("thread");
-        assert_eq!(
-            arrived,
-            Arrived::new("served://one", b"by closure".to_vec())
-        );
+        assert_eq!(arrived, Taken::new("served://one", b"by closure".to_vec()));
     }
 }

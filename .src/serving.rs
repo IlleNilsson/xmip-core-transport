@@ -40,6 +40,15 @@ pub trait Open: Send {
     fn waiting(&self) -> bool {
         false
     }
+
+    /// Whether the connection waits on this side: an exchange taken from
+    /// it is not answered yet, because its answer is the verdict of a
+    /// receive cycle still running (`crate::Acknowledgement`). A busy
+    /// connection takes no next exchange and is not waited on, so what
+    /// its peer says next waits in its socket until it is answered.
+    fn busy(&self) -> bool {
+        false
+    }
 }
 
 /// What one turn on a connection came to.
@@ -121,10 +130,13 @@ impl<C: Open> Serving<C> {
         let deadline = timeout.map(|timeout| Instant::now() + timeout);
         loop {
             // What is already read goes first: no socket will say so.
-            let Some(at) = open.iter().position(Open::waiting).map_or_else(
-                || spoken(listener, &mut open, deadline, timeout, &mut opened),
-                |at| Ok(Some(at)),
-            )?
+            let Some(at) = open
+                .iter()
+                .position(|c| !c.busy() && c.waiting())
+                .map_or_else(
+                    || spoken(listener, &mut open, deadline, timeout, &mut opened),
+                    |at| Ok(Some(at)),
+                )?
             else {
                 continue;
             };
@@ -189,12 +201,22 @@ fn wait<C: Open>(
     open: &[C],
     within: Option<Duration>,
 ) -> Result<Vec<bool>> {
-    let mut sources = Vec::with_capacity(open.len() + 1);
+    // A busy connection is not waited on: it answers nothing until its
+    // exchange is, so it is reported quiet.
+    let idle: Vec<usize> = (0..open.len()).filter(|&at| !open[at].busy()).collect();
+    let mut sources = Vec::with_capacity(idle.len() + 1);
     sources.push(listener.as_fd());
-    sources.extend(open.iter().map(|connection| connection.socket().as_fd()));
+    sources.extend(idle.iter().map(|&at| open[at].socket().as_fd()));
     loop {
         match socket::ready(&sources, within) {
-            Ok(ready) => return Ok(ready),
+            Ok(said) => {
+                let mut ready = vec![false; open.len() + 1];
+                ready[0] = said[0];
+                for (&at, &spoke) in idle.iter().zip(&said[1..]) {
+                    ready[at + 1] = spoke;
+                }
+                return Ok(ready);
+            }
             Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
             Err(error) => return Err(classify("waiting for a peer", &error)),
         }
@@ -241,6 +263,8 @@ mod tests {
     struct Lines {
         reader: BufReader<TcpStream>,
         peer: SocketAddr,
+        /// A `wait` taken and not answered: the connection is busy.
+        unanswered: bool,
     }
 
     impl Open for Lines {
@@ -250,6 +274,10 @@ mod tests {
 
         fn waiting(&self) -> bool {
             !self.reader.buffer().is_empty()
+        }
+
+        fn busy(&self) -> bool {
+            self.unanswered
         }
     }
 
@@ -261,6 +289,10 @@ mod tests {
             .map_err(|e| classify("reading", &e))?;
         if read == 0 {
             return Ok(Turn::Closed);
+        }
+        if line.trim_end() == "wait" {
+            lines.unanswered = true;
+            return Ok(Turn::Taken((line.trim_end().to_string(), lines.peer)));
         }
         lines
             .reader
@@ -285,6 +317,7 @@ mod tests {
         Ok(Lines {
             reader: BufReader::new(stream),
             peer,
+            unanswered: false,
         })
     }
 
@@ -366,6 +399,25 @@ mod tests {
         assert_eq!(serving.open(), 2, "both kept");
         quiet.say("again");
         assert_eq!(next(&serving).expect("quiet again").0, "again");
+    }
+
+    #[test]
+    fn a_busy_connection_takes_nothing_until_it_is_answered() {
+        let (serving, address) = serving();
+        let mut waiting = Peer::to(&address);
+        waiting.say("wait");
+        assert_eq!(next(&serving).expect("taken").0, "wait");
+        // Said on the busy connection: it waits in its socket.
+        waiting.say("pipelined");
+        let mut other = Peer::to(&address);
+        other.say("other");
+        assert_eq!(next(&serving).expect("the other").0, "other");
+        let unbound = || -> Result<(TcpListener, String)> { panic!("bound twice") };
+        let within = Some(Duration::from_millis(50));
+        let error = serving
+            .next(unbound, within, opened, line)
+            .expect_err("only the busy one has spoken");
+        assert!(error.retryable, "{error}");
     }
 
     #[test]

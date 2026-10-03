@@ -7,9 +7,9 @@
 //! address and the take are the technology's; the far end that carries them
 //! is this one.
 
-use crate::arrived::Arrived;
 use crate::error::Result;
 use crate::loopback::FarEnd;
+use crate::taken::Taken;
 
 /// A far end at `address` whose one exchange is `take`.
 pub struct Held<F> {
@@ -19,7 +19,7 @@ pub struct Held<F> {
 
 impl<F> Held<F>
 where
-    F: FnOnce() -> Result<Arrived> + Send,
+    F: FnOnce() -> Result<Taken> + Send,
 {
     /// A far end the near end reaches at `address`, and what taking its one
     /// exchange is.
@@ -34,13 +34,13 @@ where
 
 impl<F> FarEnd for Held<F>
 where
-    F: FnOnce() -> Result<Arrived> + Send,
+    F: FnOnce() -> Result<Taken> + Send,
 {
     fn address(&self) -> &str {
         &self.address
     }
 
-    fn take_one(self: Box<Self>) -> Result<Arrived> {
+    fn take_one(self: Box<Self>) -> Result<Taken> {
         (self.take)()
     }
 }
@@ -52,7 +52,7 @@ mod tests {
     #[test]
     fn a_held_far_end_reports_its_address_and_takes_once() {
         let far = Box::new(Held::new("bus://loopback/1", || {
-            Ok(Arrived::new("bus://loopback/1", b"held".to_vec()))
+            Ok(Taken::new("bus://loopback/1", b"held".to_vec()))
         }));
         assert_eq!(far.address(), "bus://loopback/1");
         assert_eq!(far.take_one().expect("take").bytes, b"held");

@@ -61,6 +61,15 @@ takes nothing beyond its address declares `Settings::none(env!("CARGO_PKG_NAME")
 Its test holds the declaration sound (`SETTINGS.problems()` is empty) and
 builds from a Location through `open`.
 
+The runtime then gives the transport its node, once, as it builds it:
+`Configured::on_node` with the node's location, `NodeLocation` (the owner's
+*Option A*, 2026-10-03). A technology that records at the far end who holds
+what — a claimed file's name, a lease's owner — overrides it, keeps the
+location, and returns what that name still holds there, since a node being
+built is a node starting. Every other technology leaves the default, which
+keeps nothing. Never take the node through `configured` or a constructor of
+your own.
+
 Never bring a protocol name into the transport *capability* — protocol code
 lives only in its own technology repository. That is the rule that keeps the
 base protocol-agnostic, and what two technologies both need goes up into this
