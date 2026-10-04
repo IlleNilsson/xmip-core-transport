@@ -10,10 +10,15 @@
 //! the dialect's first parameter ([`super::Dialect::marker`]). The name
 //! goes in as a string literal the technology writes with its own quoting,
 //! never as text spliced raw: whatever a row's first column holds stays
-//! one value. It runs on `Accepted`, and on `Refused` too — a table has no
-//! place for a refused row, the runtime audited the refusal, and from
-//! Message creation on the Stream is kept in Xmip (ADR-0013) — never on
-//! `Failed`, which leaves the row for the next receive.
+//! one value. It runs on `Accepted` only. A refusal is not a consumption:
+//! a Stream refused at a transport gate was never written to the Ledger,
+//! so the row is the only copy. On `Refused` the row is left where it lies
+//! and remembered by its name with a hash of its body ([`RefusedRows`]),
+//! and no receive hands it on again while the query reads it so; a row
+//! whose body changed is a new arrival. `Failed` leaves the row for the
+//! next receive.
+
+use std::hash::{DefaultHasher, Hash, Hasher};
 
 use codec::sql::Delimiter;
 use xcore::settings::{Applies, Kind, Presence, Setting};
@@ -22,17 +27,19 @@ use super::Dialect;
 use crate::acknowledgement::{Acknowledgement, Verdict};
 use crate::arrived::Arrived;
 use crate::error::Result;
+use crate::refused::Refused;
 
 /// The setting that names the statement run on a row's verdict.
 pub const ACCEPT: Setting = Setting {
     name: "accept",
     kind: Kind::Text,
     presence: Presence::Optional,
-    meaning: "A statement run once a row's receive cycle accepted or refused it, the row's name \
-              (the query's first column) in place of the dialect's first parameter: a DELETE or \
-              UPDATE that consumes the row only after its Stream is Xmip's, or refused for good. \
-              A row whose cycle failed is left for the next receive. Nothing runs when left out, \
-              and the query alone decides whether a row is read again.",
+    meaning: "A statement run once a row's receive cycle accepted it, the row's name (the \
+              query's first column) in place of the dialect's first parameter: a DELETE or \
+              UPDATE that consumes the row only after its Stream is Xmip's. A refused row is \
+              left, and not received again while its body is unchanged; a row whose cycle \
+              failed is left for the next receive. Nothing runs when left out, and the query \
+              alone decides whether a row is read again.",
     applies: Applies::Receive,
 };
 
@@ -68,8 +75,8 @@ impl Dialect {
     }
 
     /// The acknowledgement of the row `name`: `accept`, the name bound in
-    /// as the literal `quote` writes, handed to `run` on `Accepted` and
-    /// `Refused`; nothing on `Failed`, nor where there is no statement or
+    /// as the literal `quote` writes, handed to `run` on `Accepted`;
+    /// nothing on `Refused` or `Failed`, nor where there is no statement or
     /// no name to bind.
     #[must_use]
     pub fn accepting(
@@ -84,35 +91,58 @@ impl Dialect {
         };
         let statement = self.bound(accept, &quote(name));
         Acknowledgement::deferred(move |verdict| match verdict {
-            Verdict::Accepted | Verdict::Refused(_) => run(&statement),
-            Verdict::Failed => Ok(()),
+            Verdict::Accepted => run(&statement),
+            Verdict::Refused(_) | Verdict::Failed => Ok(()),
         })
     }
 }
 
-/// The rows a query read, each one Stream, whole: its name the first
-/// column as `name` reads it — its index where that is NULL — its origin
-/// what `origin` makes of that name, its body the last column as `bytes`
-/// reads it — empty where that is NULL — and its acknowledgement what
-/// `acknowledgement` makes of the name the row has, if any.
+/// The rows a SQL Location refused and left: each by its name, the query's
+/// first column, with a hash of its body. A row with no name is never
+/// remembered.
+pub type RefusedRows = Refused<Option<String>, u64>;
+
+/// The rows a query read, each one Stream, whole, but those `refused`
+/// holds as they lie: its name the first column as `name` reads it — its
+/// index where that is NULL — its origin what `origin` makes of that name,
+/// its body the last column as `bytes` reads it — empty where that is NULL
+/// — and its acknowledgement what `acknowledgement` makes of the name the
+/// row has, if any, remembering a named row in `refused` when its cycle
+/// refuses it.
 ///
 /// # Errors
 /// Where `bytes` refuses a value.
 pub fn arrivals<V>(
     rows: Vec<Vec<Option<V>>>,
+    refused: &RefusedRows,
     origin: impl Fn(&str) -> String,
     name: impl Fn(&V) -> String,
     bytes: impl Fn(V) -> Result<Vec<u8>>,
     acknowledgement: impl Fn(Option<&str>) -> Acknowledgement,
 ) -> Result<Vec<Arrived>> {
-    let mut arrived = Vec::with_capacity(rows.len());
+    let mut read = Vec::with_capacity(rows.len());
     for (index, mut row) in rows.into_iter().enumerate() {
         let named = row.first().and_then(Option::as_ref).map(&name);
         let body = match row.pop().flatten() {
             Some(value) => bytes(value)?,
             None => Vec::new(),
         };
+        let mut hasher = DefaultHasher::new();
+        body.hash(&mut hasher);
+        read.push((index, named, hasher.finish(), body));
+    }
+    let read = refused.sift(
+        read,
+        |(_, named, ..)| named,
+        |(_, _, stamp, _)| Some(*stamp),
+    );
+    let mut arrived = Vec::with_capacity(read.len());
+    for (index, named, stamp, body) in read {
         let told = acknowledgement(named.as_deref());
+        let told = match &named {
+            Some(_) => refused.remembering(named.clone(), stamp, told),
+            None => told,
+        };
         let name = named.unwrap_or_else(|| index.to_string());
         arrived.push(Arrived::whole(origin(&name), body, told));
     }
@@ -174,7 +204,7 @@ mod tests {
     }
 
     #[test]
-    fn accept_runs_on_accepted_and_refused_never_on_failed_nor_unnamed() {
+    fn accept_runs_on_accepted_never_on_refused_failed_nor_unnamed() {
         let ran = Arc::new(Mutex::new(Vec::new()));
         let told = |name: Option<&str>, verdict| {
             let into = Arc::clone(&ran);
@@ -201,10 +231,45 @@ mod tests {
             .expect("nothing to run");
         assert_eq!(
             *ran.lock().expect("lock"),
-            [
-                "DELETE FROM t WHERE id = 'it''s'",
-                "DELETE FROM t WHERE id = '2'"
-            ]
+            ["DELETE FROM t WHERE id = 'it''s'"]
+        );
+    }
+
+    #[test]
+    fn a_refused_row_is_not_handed_on_again_until_its_body_changes() {
+        let refused = RefusedRows::default();
+        let read = |rows: &[(&str, &str)]| {
+            let rows = rows
+                .iter()
+                .map(|(n, b)| vec![Some((*n).to_string()), Some((*b).to_string())])
+                .collect();
+            arrivals(
+                rows,
+                &refused,
+                |name| format!("example://db?row={name}"),
+                Clone::clone,
+                |value| Ok(value.into_bytes()),
+                |_| Acknowledgement::unconsumed(),
+            )
+            .expect("rows")
+        };
+        let origins = |arrived: &[Arrived]| -> Vec<String> {
+            arrived.iter().map(|a| a.origin_uri.clone()).collect()
+        };
+        let mut first = read(&[("a.edi", "one"), ("b.edi", "two")]).into_iter();
+        first
+            .next()
+            .expect("a.edi")
+            .refused(Refusal::Forbidden)
+            .expect("left");
+        first.next().expect("b.edi").failed().expect("left");
+        let again = read(&[("a.edi", "one"), ("b.edi", "two")]);
+        assert_eq!(origins(&again), ["example://db?row=b.edi"]);
+        drop(again);
+        let changed = read(&[("a.edi", "uno"), ("b.edi", "two")]);
+        assert_eq!(
+            origins(&changed),
+            ["example://db?row=a.edi", "example://db?row=b.edi"]
         );
     }
 
@@ -219,6 +284,7 @@ mod tests {
         let seen = Arc::clone(&named);
         let arrived = arrivals(
             rows,
+            &RefusedRows::default(),
             |name| format!("example://db?row={name}"),
             Clone::clone,
             |value| Ok(value.into_bytes()),
@@ -243,6 +309,7 @@ mod tests {
         assert!(
             arrivals(
                 vec![vec![Some(1u8)]],
+                &RefusedRows::default(),
                 str::to_string,
                 ToString::to_string,
                 |_| Err(crate::error::TransportError::permanent("refused")),

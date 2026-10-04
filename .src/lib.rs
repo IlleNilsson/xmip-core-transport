@@ -27,8 +27,11 @@
 //!   together.rs         arrivals a far end settles together, after the last verdict
 //!   body.rs             a body opened by its first read, or pulled a chunk at a time
 //!   contiguous.rs       a place in an ordered log that only a contiguous acceptance moves
-//!   listed.rs           a receive from an object store: listed, each fetched when read,
-//!                       deleted once accepted or refused
+//!   listed.rs           a receive from an object store: its XML listing scanned, each
+//!                       fetched when read, deleted once accepted, left and remembered
+//!                       once refused
+//!   refused.rs          what a Location refused and left where it lies, each by its name
+//!                       and stamp, left out of a listing while it lies as it was refused
 //!   answer.rs           the answer a peer waits for after the cycle: on its connection,
 //!                       busy until given and shut when let go, or as a datagram
 //!   error.rs            failure, and whether saying it again would help
@@ -111,6 +114,7 @@ pub mod node;
 pub mod payload;
 pub mod pool;
 pub mod protocol;
+pub mod refused;
 pub mod sender;
 pub mod serving;
 pub mod socket;
@@ -133,6 +137,7 @@ pub use loopback::{FarEnd, LOOPBACK_TIMEOUT, Loopback, UNBLOCK_TIMEOUT};
 pub use node::NodeLocation;
 pub use pool::{Pool, Pooled};
 pub use protocol::Transport;
+pub use refused::Refused;
 pub use taken::Taken;
 
 /// What one TCP segment carries over Ethernet: its 1500-byte MTU less the
