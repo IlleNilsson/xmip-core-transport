@@ -13,7 +13,7 @@ sections 2, 7, 8 and 10. What follows is what a transport adds to that.
 
 ## The base you implement
 
-`Transport` (`.src/protocol.rs`) — five methods, and nothing in it names a
+`Transport` (`.src/protocol.rs`) — seven methods, and nothing in it names a
 protocol:
 
 ```rust
@@ -21,10 +21,19 @@ pub trait Transport {
     fn name(&self) -> &'static str;                          // the token in the repo name
     fn directions(&self) -> Directions;                      // receive, send, or both
     fn receive(&self) -> Result<Vec<Arrived>>;               // empty vec = nothing arrived
+    fn arrivals(&self) -> Arrivals;                          // told in order, or each alone
     fn send(&self, target: &str, bytes: &[u8]) -> Result<()>;
+    fn send_keyed(&self, target: &str, bytes: &[u8], key: &str) -> Result<()>; // send, by default
     fn claims(&self) -> Option<&dyn ResourceClaim> { None }  // exactly-once pickup (ADR-0024)
 }
 ```
+
+`send_keyed` is how the runtime sends: `key` is the Journey's identifier,
+the deduplication key (runtime-model section 15, *Delivery semantics*).
+Where the protocol has a native identifier its far end deduplicates by — a
+message id, a record key, an idempotency header — put the key there and say
+so in the README; the default ignores it and sends as `send` does, at least
+once.
 
 And `Configured` (`.src/configured.rs`) beside it: the settings the
 technology takes beyond the Location's address, declared once, and the one

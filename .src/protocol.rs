@@ -8,7 +8,7 @@ use crate::error::Result;
 
 /// What every protocol implements.
 ///
-/// Five methods, and nothing here knows which protocols exist. That is what
+/// Seven methods, and nothing here knows which protocols exist. That is what
 /// makes lifting one out into `xmip-core-transport-<name>` a move rather than a
 /// rewrite.
 pub trait Transport {
@@ -51,6 +51,25 @@ pub trait Transport {
     /// Where the target is not addressable in this protocol, or the endpoint
     /// refused or could not be reached.
     fn send(&self, target: &str, bytes: &[u8]) -> Result<()>;
+
+    /// Deliver bytes as [`Transport::send`] does, under `key`: the
+    /// delivery's deduplication key, the Journey's identifier, the same on
+    /// every attempt of one Journey and different for every other
+    /// (runtime-model section 15, *Delivery semantics*). A technology whose
+    /// protocol carries a native identifier the far end deduplicates by —
+    /// an AMQP `message-id`, a Kafka record key, an HTTP `Idempotency-Key`,
+    /// a `JetStream` `Nats-Msg-Id` — puts `key` there, and its README says
+    /// so; a send repeated after a lost answer is then delivered once.
+    /// Every other technology sends as it always does, at least once: the
+    /// default ignores `key`.
+    ///
+    /// # Errors
+    ///
+    /// As [`Transport::send`].
+    fn send_keyed(&self, target: &str, bytes: &[u8], key: &str) -> Result<()> {
+        let _ = key;
+        self.send(target, bytes)
+    }
 
     /// How this protocol claims a discrete artefact, where it can. ADR-0024.
     ///
