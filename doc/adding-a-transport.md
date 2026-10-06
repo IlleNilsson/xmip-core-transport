@@ -114,6 +114,20 @@ the near end keeps its session. A user and a password are the capability's
 a Stream by the connection itself — raw TCP, closed to end it — connects
 per message, and says why.
 
+## Reaching a node
+
+A transport reaches a node by being linked into `xmip-service`, never by
+being installed beside it: the runtime's Module loader drives the contract
+table alone, and the service is built without it
+([built, not in the assembled service](../../../../../doc/architecture/estate-map.md#module-loading)). So a new
+transport needs three more edits and a rebuild — a `transport-<name>`
+feature in the estate root's `Cargo.toml`, its line in
+`.src/service/built.rs`'s `transports()`, and the domain profile under
+`deploy/profile/domain` that serves it — and then `Build-XmipService -Site
+<name>` for each site that should carry it. Only then may a node's TOML name
+it; a Location naming a transport its program was not built with is refused
+as the node starts.
+
 ## Prove it
 
 A transport is its own far end (ADR-0051): the technology ships the

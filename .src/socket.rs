@@ -360,21 +360,27 @@ mod tests {
         const ROUNDS: u32 = 100;
         let (listener, address) = bind_tcp("127.0.0.1:0").expect("bind");
         let (go, went) = std::sync::mpsc::channel::<()>();
+        let (landed, lands) = std::sync::mpsc::channel::<Instant>();
         let peer = std::thread::spawn(move || {
             for _ in 0..ROUNDS {
                 went.recv().expect("go");
                 let mut stream = connect_tcp(&address, Some(Duration::from_secs(5))).expect("c");
+                landed.send(Instant::now()).expect("landed");
                 let mut back = [0u8; 1];
                 std::io::Read::read_exact(&mut stream, &mut back).expect("answered");
             }
         });
+        // What the accept adds once the connection has landed: the peer's
+        // wake-up and its handshake are the peer's, not the accept's, and
+        // under the other tests running beside this one they are load.
         let mut waited = Duration::ZERO;
         for _ in 0..ROUNDS {
             go.send(()).expect("go");
-            let began = Instant::now();
             let (mut stream, _) =
                 accept_tcp(&listener, Some(Duration::from_secs(5))).expect("accepted");
-            waited += began.elapsed();
+            let accepted = Instant::now();
+            let connected = lands.recv().expect("landed");
+            waited += accepted.saturating_duration_since(connected);
             stream.write_all(b"x").expect("answer");
         }
         peer.join().expect("peer");
