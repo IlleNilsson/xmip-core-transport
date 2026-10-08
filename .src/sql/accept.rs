@@ -144,7 +144,7 @@ pub fn arrivals<V>(
             None => told,
         };
         let name = named.unwrap_or_else(|| index.to_string());
-        arrived.push(Arrived::whole(origin(&name), body, told));
+        arrived.push(Arrived::whole(origin(&name), body, told).detected());
     }
     Ok(arrived)
 }

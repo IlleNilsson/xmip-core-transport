@@ -59,7 +59,13 @@ net = { package = "xmip-core-library-net", git = "https://github.com/IlleNilsson
 # The readiness wait a bounded accept blocks on (socket.rs): poll(2), and
 # WSAPoll on Windows, behind a safe call. Only its `event` module; std has
 # no accept with a deadline, and the alternative was a nap and a retry.
-rustix = { version = "1", default-features = false, features = ["std", "event"] }
+# And its `net` module for the one socket option std does not set: how
+# many bytes a datagram socket holds before it drops (socket::hold).
+rustix = { version = "1", default-features = false, features = ["std", "event", "net"] }
+# The names a transport writes what it observed of an arrival's sender
+# under — the socket peer, a TLS peer certificate, an SSH key — which the
+# identity gates read (`context::property`, ADR-0019 amendment 2026-09-24).
+context = { package = "xmip-core-context", git = "https://github.com/IlleNilsson/xmip-core-context", branch = "main" }
 # The settings declaration every technology writes (xcore::settings), read
 # through by `Configured` (configured.rs): the one shape a transport's and a
 # contract's settings share (ADR-0064, amendment 2026-09-26); and the failure

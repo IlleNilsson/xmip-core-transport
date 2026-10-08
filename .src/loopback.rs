@@ -17,6 +17,7 @@
 
 use std::time::Duration;
 
+use crate::arrival_identity::ArrivalIdentity;
 use crate::error::{Result, protocol_error};
 use crate::protocol::Transport;
 use crate::taken::Taken;
@@ -96,6 +97,12 @@ pub trait Loopback: Transport + Send + Sync {
         false
     }
 
+    /// What this protocol's arrival carries of its sender beyond its
+    /// origin, and under which names, or why it carries nothing more
+    /// ([`ArrivalIdentity`]). Every round holds the far end's arrival to
+    /// it, so a technology that drops who sent it fails its own rounds.
+    fn arrival_identity(&self) -> ArrivalIdentity;
+
     /// Stand up the far end and learn where it listens.
     ///
     /// # Errors
@@ -158,7 +165,9 @@ pub trait Loopback: Transport + Send + Sync {
             },
         );
         sent.map_err(|error| error.at("send failed"))?;
-        taken.map_err(|error| error.at("take failed"))
+        let taken = taken.map_err(|error| error.at("take failed"))?;
+        self.arrival_identity().check(&taken)?;
+        Ok(taken)
     }
 
     /// One round in order on one thread: the send goes first and the take
@@ -179,6 +188,7 @@ pub trait Loopback: Transport + Send + Sync {
         if arrived.bytes != payload {
             return Err(protocol_error("sent, but what was taken back differs"));
         }
+        self.arrival_identity().check(&arrived)?;
         Ok(arrived)
     }
 }
@@ -236,6 +246,7 @@ mod tests {
         in_order: bool,
         datagram: bool,
         unblocked: AtomicBool,
+        identity: ArrivalIdentity,
     }
 
     fn mailbox(in_order: bool, datagram: bool) -> Mailbox {
@@ -244,6 +255,7 @@ mod tests {
             in_order,
             datagram,
             unblocked: AtomicBool::new(false),
+            identity: ArrivalIdentity::Unnamed("a letter in this process names no sender"),
         }
     }
 
@@ -321,6 +333,10 @@ mod tests {
             self.in_order
         }
 
+        fn arrival_identity(&self) -> ArrivalIdentity {
+            self.identity
+        }
+
         fn far_end(&self) -> Result<Box<dyn FarEnd>> {
             Ok(Box::new(Slot {
                 letter: Arc::clone(&self.letter),
@@ -392,6 +408,17 @@ mod tests {
         let error = mailbox.round(b"over the top").expect_err("refused");
         assert!(!error.message.starts_with("send failed:"), "{error}");
         assert!(!mailbox.unblocked.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn a_round_whose_arrival_drops_who_sent_it_fails_both_ways() {
+        let mut mailbox = mailbox(false, false);
+        mailbox.identity = ArrivalIdentity::PEER;
+        let error = mailbox.round(b"ping").expect_err("dropped");
+        assert!(error.message.contains("dropped who sent it"), "{error}");
+        mailbox.in_order = true;
+        let error = mailbox.round(b"ping").expect_err("dropped in order");
+        assert!(error.message.contains("peer.address"), "{error}");
     }
 
     #[test]

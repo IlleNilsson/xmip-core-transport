@@ -19,6 +19,10 @@
 //!   direction.rs        which directions an implementation supports
 //!   arrived.rs          one Stream, where it came from, its body as a reader; the next
 //!                       or the one arrival
+//!   arrival_identity.rs what an arrival observed of its sender, under context's names,
+//!                       or why it has nothing beyond its origin; held by every round
+//!   headers.rs          what a protocol delivered beside the bytes, under its word,
+//!                       for the runtime to write into the Message Context
 //!   arrivals.rs         whether a technology's arrivals are told in order or each
 //!                       on its own, and why
 //!   acknowledgement.rs  what the far end is told once the receive cycle ended: the
@@ -91,6 +95,7 @@
 
 pub mod acknowledgement;
 pub mod answer;
+pub mod arrival_identity;
 pub mod arrivals;
 pub mod arrived;
 pub mod body;
@@ -100,6 +105,7 @@ pub mod configured;
 pub mod contiguous;
 pub mod direction;
 pub mod error;
+pub mod headers;
 pub mod held;
 pub mod kept;
 #[cfg(any(test, feature = "test-support"))]
@@ -125,12 +131,14 @@ pub mod taken;
 pub mod together;
 
 pub use acknowledgement::{Acknowledgement, Refusal, Verdict};
+pub use arrival_identity::ArrivalIdentity;
 pub use arrivals::Arrivals;
 pub use arrived::Arrived;
 pub use claim::{Artefact, Claimed, NoNativeClaim, ResourceClaim};
 pub use configured::Configured;
 pub use direction::Directions;
 pub use error::{Result, TransportError};
+pub use headers::Headers;
 pub use listening::{Accepting, Listening};
 pub use login::Login;
 pub use loopback::{FarEnd, LOOPBACK_TIMEOUT, Loopback, UNBLOCK_TIMEOUT};
