@@ -292,6 +292,20 @@ pub fn bind_udp(bind: &str, timeout: Option<Duration>) -> Result<(UdpSocket, Str
     Ok((socket, local.to_string()))
 }
 
+/// Have `socket` hold `bytes` of datagrams before the operating system
+/// drops the next: a datagram arriving at a full receive buffer is lost
+/// without a word. Windows gives a socket 64 KiB, one large datagram, so a
+/// protocol that writes a burst of them — a DDS sample in fragments — lost
+/// one whenever its reader was not scheduled in time (2026-10-06). Linux
+/// caps what is asked at `net.core.rmem_max`.
+///
+/// # Errors
+/// Where the operating system refuses the option.
+pub fn hold(socket: &UdpSocket, bytes: usize) -> Result<()> {
+    rustix::net::sockopt::set_socket_recv_buffer_size(socket, bytes)
+        .map_err(|e| classify("setting the receive buffer", &e.into()))
+}
+
 /// The group and the `0.0.0.0:port` to bind for it, where `bind` is a
 /// multicast address; `None` where it is a unicast one.
 #[must_use]

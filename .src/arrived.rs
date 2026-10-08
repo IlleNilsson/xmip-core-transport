@@ -1,12 +1,16 @@
 //! One Stream as it arrived: where it came from, its body as a reader the
-//! runtime pulls in chunks, and how its far end is told the receive cycle
-//! ended.
+//! runtime pulls in chunks, the headers its protocol delivered beside it,
+//! and how its far end is told the receive cycle ended.
 
 use std::fmt;
 use std::io::{Cursor, Read};
+use std::net::SocketAddr;
+
+use xcore::Arriving;
 
 use crate::acknowledgement::{Acknowledgement, Refusal, Verdict};
 use crate::error::{Result, classify};
+use crate::headers::Headers;
 use crate::taken::Taken;
 
 /// What a transport hands back from `receive`.
@@ -22,12 +26,26 @@ use crate::taken::Taken;
 /// a protocol that hands over a whole message — a queue message, a
 /// datagram, a frame — gives a reader over it ([`Arrived::whole`]).
 ///
+/// **Headers travel beside the body** ([`Arrived::with_headers`]): what
+/// the protocol delivered with it, handed as it came; the runtime writes
+/// them into the Message Context (ADR-0046, amendment 2026-09-25, later).
+///
+/// **What the transport observed of its sender travels beside it**
+/// ([`Arrived::observing`], [`Arrived::from_peer`]): the socket peer, a TLS
+/// peer certificate, an SSH key, each under its `context::property` name,
+/// for the identity gates to read (ADR-0019 clause 5, amendment
+/// 2026-09-24); and how it got here — pushed, unless the technology says
+/// it found it waiting or fetched it (clause 8, [`Arrived::detected`]).
+///
 /// **Nothing is consumed before the acknowledgement.** The far end keeps
 /// what arrived until the runtime gives the [`Acknowledgement`] its
 /// [`Verdict`] after the whole receive cycle (runtime-model section 5).
 pub struct Arrived {
     pub origin_uri: String,
     body: Box<dyn Read + Send>,
+    headers: Headers,
+    observed: Vec<(String, String)>,
+    arriving: Arriving,
     acknowledgement: Acknowledgement,
 }
 
@@ -43,8 +61,97 @@ impl Arrived {
         Self {
             origin_uri: origin_uri.into(),
             body: Box::new(body),
+            headers: Headers::default(),
+            observed: Vec::new(),
+            arriving: Arriving::Pushed,
             acknowledgement,
         }
+    }
+
+    /// The same arrival, carrying the `headers` its protocol delivered.
+    #[must_use]
+    pub fn with_headers(mut self, headers: Headers) -> Self {
+        self.headers = headers;
+        self
+    }
+
+    /// The headers its protocol delivered; none where it delivered none.
+    #[must_use]
+    pub const fn headers(&self) -> &Headers {
+        &self.headers
+    }
+
+    /// The headers, taken out for the runtime to write; none are left.
+    pub fn take_headers(&mut self) -> Headers {
+        std::mem::take(&mut self.headers)
+    }
+
+    /// The same arrival, having observed `value` of its sender under
+    /// `name`, a `context::property` name.
+    #[must_use]
+    pub fn observing(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
+        self.observed.push((name.into(), value.into()));
+        self
+    }
+
+    /// The same arrival, having observed each of `observed`: what a
+    /// technology riding on another hands on of what that one observed —
+    /// the datagram's peer under a sample assembled from it.
+    #[must_use]
+    pub fn observing_all(mut self, observed: impl IntoIterator<Item = (String, String)>) -> Self {
+        self.observed.extend(observed);
+        self
+    }
+
+    /// The same arrival, from the socket peer `peer`
+    /// ([`crate::arrival_identity::peer`]).
+    #[must_use]
+    pub fn from_peer(self, peer: SocketAddr) -> Self {
+        let (name, value) = crate::arrival_identity::peer(peer);
+        self.observing(name, value)
+    }
+
+    /// The same arrival, from the hardware address `mac`
+    /// ([`crate::arrival_identity::peer_mac`]).
+    #[must_use]
+    pub fn from_peer_mac(self, mac: &impl ToString) -> Self {
+        let (name, value) = crate::arrival_identity::peer_mac(mac);
+        self.observing(name, value)
+    }
+
+    /// What the transport observed of the sender, in the order observed.
+    #[must_use]
+    pub fn observed(&self) -> &[(String, String)] {
+        &self.observed
+    }
+
+    /// What was observed, taken out for the runtime to hand the gates;
+    /// none is left.
+    pub fn take_observed(&mut self) -> Vec<(String, String)> {
+        std::mem::take(&mut self.observed)
+    }
+
+    /// The same arrival, which the technology found waiting — a file in a
+    /// folder, a message on a queue it watches — rather than one pushed to
+    /// it (ADR-0019 clause 8).
+    #[must_use]
+    pub const fn detected(mut self) -> Self {
+        self.arriving = Arriving::Detected;
+        self
+    }
+
+    /// The same arrival, which the technology went and fetched on a
+    /// schedule (ADR-0019 clause 8).
+    #[must_use]
+    pub const fn scheduled(mut self) -> Self {
+        self.arriving = Arriving::Scheduled;
+        self
+    }
+
+    /// Pushed, detected or scheduled.
+    #[must_use]
+    pub const fn arriving(&self) -> Arriving {
+        self.arriving
     }
 
     /// A Stream the protocol handed over whole — a queue message, a frame,
@@ -80,7 +187,8 @@ impl Arrived {
     /// # Errors
     /// Where the body could not be read, which is a failed cycle, or the
     /// far end could not be told.
-    pub fn taken(self) -> Result<Taken> {
+    pub fn taken(mut self) -> Result<Taken> {
+        let observed = self.take_observed();
         let (origin_uri, mut body, acknowledgement) = self.into_parts();
         let mut bytes = Vec::new();
         if let Err(error) = body.read_to_end(&mut bytes) {
@@ -90,7 +198,9 @@ impl Arrived {
         }
         drop(body);
         acknowledgement.acknowledge(Verdict::Accepted)?;
-        Ok(Taken::new(origin_uri, bytes))
+        let mut taken = Taken::new(origin_uri, bytes);
+        taken.observed = observed;
+        Ok(taken)
     }
 
     /// Refuse it unread, for `why`: the far end hears the protocol's
@@ -123,6 +233,9 @@ impl fmt::Debug for Arrived {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Arrived")
             .field("origin_uri", &self.origin_uri)
+            .field("headers", &self.headers.fields().len())
+            .field("observed", &self.observed)
+            .field("arriving", &self.arriving)
             .field("acknowledgement", &self.acknowledgement)
             .finish_non_exhaustive()
     }
@@ -263,8 +376,34 @@ mod tests {
         assert!(!arrived.defers());
         assert_eq!(
             format!("{arrived:?}"),
-            "Arrived { origin_uri: \"udp://127.0.0.1:9\", acknowledgement: \
+            "Arrived { origin_uri: \"udp://127.0.0.1:9\", headers: 0, observed: [], \
+             arriving: Pushed, acknowledgement: \
              Acknowledgement::AtMostOnce(\"a datagram has nobody to answer\"), .. }"
+        );
+    }
+
+    #[test]
+    fn an_arrival_carries_its_headers_until_they_are_taken() {
+        let mut arrived = Arrived::whole("http://peer/in", b"{}".to_vec(), told().1)
+            .with_headers(Headers::of("http").text([("Content-Type", "application/json")]));
+        assert_eq!(arrived.headers().protocol(), "http");
+        let headers = arrived.take_headers();
+        assert_eq!(headers.fields().len(), 1);
+        assert!(arrived.headers().is_empty(), "taken once");
+    }
+
+    #[test]
+    fn an_arrival_keeps_what_it_observed_of_its_sender_through_taken() {
+        let peer: SocketAddr = "192.0.2.10:4711".parse().expect("an address");
+        let arrived = Arrived::whole("tcp://192.0.2.10:4711", b"x".to_vec(), told().1)
+            .from_peer(peer)
+            .detected();
+        assert_eq!(arrived.arriving(), Arriving::Detected);
+        assert_eq!(arrived.observed().len(), 1);
+        let taken = arrived.taken().expect("taken");
+        assert_eq!(
+            taken.observation(context::property::PEER_ADDRESS),
+            Some("192.0.2.10:4711")
         );
     }
 }

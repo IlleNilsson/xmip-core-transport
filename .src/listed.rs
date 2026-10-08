@@ -92,7 +92,7 @@ where
                 Verdict::Accepted => delete(&deleting),
                 Verdict::Refused(_) | Verdict::Failed => Ok(()),
             });
-            Arrived::new(from, body, refused.remembering(name, stamp, told))
+            Arrived::new(from, body, refused.remembering(name, stamp, told)).detected()
         })
         .collect())
 }
