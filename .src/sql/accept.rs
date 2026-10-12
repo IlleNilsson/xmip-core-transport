@@ -7,8 +7,8 @@
 //! query only reads, and `accept` — `DELETE FROM inbox WHERE id = $1`, an
 //! `UPDATE` of a status column — runs on the row's verdict with the row's
 //! name, the query's first column as the origin carries it, in place of
-//! the dialect's first parameter ([`super::Dialect::marker`]). The name
-//! goes in as a string literal the technology writes with its own quoting,
+//! the dialect's first parameter (`sql::Dialect::bound`). The name goes in
+//! as a string literal the dialect writes with its own quoting,
 //! never as text spliced raw: whatever a row's first column holds stays
 //! one value. It runs on `Accepted` only. A refusal is not a consumption:
 //! a Stream refused at a transport gate was never written to the Ledger,
@@ -20,10 +20,9 @@
 
 use std::hash::{DefaultHasher, Hash, Hasher};
 
-use codec::sql::Delimiter;
+use ::sql::Dialect;
 use xcore::settings::{Applies, Kind, Presence, Setting};
 
-use super::Dialect;
 use crate::acknowledgement::{Acknowledgement, Verdict};
 use crate::arrived::Arrived;
 use crate::error::Result;
@@ -43,58 +42,25 @@ pub const ACCEPT: Setting = Setting {
     applies: Applies::Receive,
 };
 
-impl Dialect {
-    /// `statement` with every [`Dialect::marker`] outside its string
-    /// literals and quoted identifiers replaced by `literal`; a marker
-    /// followed by a digit (`$10` for `$1`) is another parameter and stays.
-    #[must_use]
-    pub fn bound(&self, statement: &str, literal: &str) -> String {
-        let mut written = String::with_capacity(statement.len() + literal.len());
-        let mut rest = statement;
-        while let Some(next) = rest.chars().next() {
-            let quoted = [Delimiter::STRING, self.identifier]
-                .into_iter()
-                .find(|delimiter| delimiter.open == next)
-                .and_then(|delimiter| delimiter.unquote_prefix(rest).ok());
-            if let Some((_, after)) = quoted {
-                written.push_str(&rest[..rest.len() - after.len()]);
-                rest = after;
-                continue;
-            }
-            if let Some(after) = rest.strip_prefix(self.marker)
-                && !after.starts_with(|c: char| c.is_ascii_digit())
-            {
-                written.push_str(literal);
-                rest = after;
-                continue;
-            }
-            written.push(next);
-            rest = &rest[next.len_utf8()..];
-        }
-        written
-    }
-
-    /// The acknowledgement of the row `name`: `accept`, the name bound in
-    /// as the literal `quote` writes, handed to `run` on `Accepted`;
-    /// nothing on `Refused` or `Failed`, nor where there is no statement or
-    /// no name to bind.
-    #[must_use]
-    pub fn accepting(
-        &self,
-        accept: Option<&str>,
-        name: Option<&str>,
-        quote: impl FnOnce(&str) -> String,
-        run: impl FnOnce(&str) -> Result<()> + Send + 'static,
-    ) -> Acknowledgement {
-        let (Some(accept), Some(name)) = (accept, name) else {
-            return Acknowledgement::unconsumed();
-        };
-        let statement = self.bound(accept, &quote(name));
-        Acknowledgement::deferred(move |verdict| match verdict {
-            Verdict::Accepted => run(&statement),
-            Verdict::Refused(_) | Verdict::Failed => Ok(()),
-        })
-    }
+/// The acknowledgement of the row `name`: `accept`, the name bound in as
+/// `dialect`'s string literal, handed to `run` on `Accepted`; nothing on
+/// `Refused` or `Failed`, nor where there is no statement or no name to
+/// bind.
+#[must_use]
+pub fn accepting(
+    dialect: &Dialect,
+    accept: Option<&str>,
+    name: Option<&str>,
+    run: impl FnOnce(&str) -> Result<()> + Send + 'static,
+) -> Acknowledgement {
+    let (Some(accept), Some(name)) = (accept, name) else {
+        return Acknowledgement::unconsumed();
+    };
+    let statement = dialect.bound(accept, &dialect.quote_text(name));
+    Acknowledgement::deferred(move |verdict| match verdict {
+        Verdict::Accepted => run(&statement),
+        Verdict::Refused(_) | Verdict::Failed => Ok(()),
+    })
 }
 
 /// The rows a SQL Location refused and left: each by its name, the query's
@@ -156,77 +122,30 @@ mod tests {
     use super::*;
     use crate::acknowledgement::Refusal;
 
-    const DIALECT: Dialect = Dialect {
-        schemes: &["example"],
-        catalog: "database",
-        identifier: Delimiter::IDENTIFIER,
-        bare: &['_'],
-        marker: "$1",
-    };
-
-    fn quote(text: &str) -> String {
-        Delimiter::STRING.quote(text)
-    }
-
-    #[test]
-    fn the_marker_is_replaced_by_the_literal_where_it_is_a_parameter() {
-        assert_eq!(
-            DIALECT.bound("DELETE FROM inbox WHERE id = $1", "'41'"),
-            "DELETE FROM inbox WHERE id = '41'"
-        );
-        assert_eq!(
-            DIALECT.bound("UPDATE inbox SET done = $1 WHERE id = $1", "'x'"),
-            "UPDATE inbox SET done = 'x' WHERE id = 'x'"
-        );
-        let question = Dialect {
-            marker: "?",
-            ..DIALECT
-        };
-        assert_eq!(
-            question.bound("DELETE FROM t WHERE id = ? AND note <> '?'", "'7'"),
-            "DELETE FROM t WHERE id = '7' AND note <> '?'"
-        );
-    }
-
-    #[test]
-    fn a_marker_in_a_literal_a_quoted_name_or_a_longer_parameter_stays() {
-        assert_eq!(
-            DIALECT.bound(
-                "UPDATE \"t$1\" SET note = 'cost $1', n = $10 WHERE id = $1",
-                "'7'"
-            ),
-            "UPDATE \"t$1\" SET note = 'cost $1', n = $10 WHERE id = '7'"
-        );
-        assert_eq!(
-            DIALECT.bound("DELETE FROM inbox", "'7'"),
-            "DELETE FROM inbox"
-        );
-    }
+    use ::sql::POSTGRESQL;
 
     #[test]
     fn accept_runs_on_accepted_never_on_refused_failed_nor_unnamed() {
         let ran = Arc::new(Mutex::new(Vec::new()));
         let told = |name: Option<&str>, verdict| {
             let into = Arc::clone(&ran);
-            DIALECT
-                .accepting(
-                    Some("DELETE FROM t WHERE id = $1"),
-                    name,
-                    quote,
-                    move |sql| {
-                        into.lock().expect("lock").push(sql.to_string());
-                        Ok(())
-                    },
-                )
-                .acknowledge(verdict)
-                .expect("told");
+            accepting(
+                &POSTGRESQL,
+                Some("DELETE FROM t WHERE id = $1"),
+                name,
+                move |sql| {
+                    into.lock().expect("lock").push(sql.to_string());
+                    Ok(())
+                },
+            )
+            .acknowledge(verdict)
+            .expect("told");
         };
         told(Some("it's"), Verdict::Accepted);
         told(Some("2"), Verdict::Refused(Refusal::Unacceptable));
         told(Some("3"), Verdict::Failed);
         told(None, Verdict::Accepted);
-        DIALECT
-            .accepting(None, Some("4"), quote, |_| panic!("no statement"))
+        accepting(&POSTGRESQL, None, Some("4"), |_| panic!("no statement"))
             .acknowledge(Verdict::Accepted)
             .expect("nothing to run");
         assert_eq!(

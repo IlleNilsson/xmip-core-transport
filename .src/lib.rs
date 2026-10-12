@@ -25,6 +25,8 @@
 //!                       for the runtime to write into the Message Context
 //!   arrivals.rs         whether a technology's arrivals are told in order or each
 //!                       on its own, and why
+//!   waiting.rs          whether a technology's receive waits for what arrives or
+//!                       looks and returns at once, and why
 //!   acknowledgement.rs  what the far end is told once the receive cycle ended: the
 //!                       verdict, or why the protocol could not defer (at-most-once)
 //!   taken.rs            what a far end took whole, already answered
@@ -70,9 +72,9 @@
 //!                       delivery answered on the session it came on, or not at all
 //!   login.rs            a user and the password it logs in with
 //!   stuffed.rs          the dot-stuffed block mail speaks: smtp, pop3
-//!   sql.rs              a send target read, the one INSERT written with quoted identifiers
-//!                       and taken apart, the verb, the fixed table a SQL far end serves, and
-//!                       the declared payload column: binary, or text in its Unicode form
+//!   sql.rs              a send target read, the fixed table a SQL far end serves, and the
+//!                       declared payload column: binary, or text in its Unicode form, written
+//!                       and read in the dialect `xmip-core-library-sql` names
 //!     accept.rs         the rows a query read as arrivals, and the `accept` statement that
 //!                       consumes each after its cycle, the row's name bound in
 //!
@@ -129,6 +131,7 @@ pub mod standing;
 pub mod stuffed;
 pub mod taken;
 pub mod together;
+pub mod waiting;
 
 pub use acknowledgement::{Acknowledgement, Refusal, Verdict};
 pub use arrival_identity::ArrivalIdentity;
@@ -147,6 +150,7 @@ pub use pool::{Pool, Pooled};
 pub use protocol::Transport;
 pub use refused::Refused;
 pub use taken::Taken;
+pub use waiting::Waiting;
 
 /// What one TCP segment carries over Ethernet: its 1500-byte MTU less the
 /// IP and TCP headers' 40. TCP over IP is the major transport, so the

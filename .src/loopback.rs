@@ -300,6 +300,10 @@ mod tests {
             crate::Arrivals::Ordered("one letter, read again until it is taken")
         }
 
+        fn waiting(&self) -> crate::Waiting {
+            crate::Waiting::Polled("the mailbox is looked in and the receive returns")
+        }
+
         /// The letter, kept in the mailbox until it is accepted.
         fn receive(&self) -> Result<Vec<crate::Arrived>> {
             let Some(bytes) = self.letter.lock().expect("lock").clone() else {
