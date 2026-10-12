@@ -88,6 +88,9 @@ mod tests {
         fn arrivals(&self) -> crate::Arrivals {
             crate::Arrivals::Unordered("nothing ever arrives")
         }
+        fn waiting(&self) -> crate::Waiting {
+            crate::Waiting::Polled("it looks and finds nothing")
+        }
         fn send(&self, _target: &str, _bytes: &[u8]) -> Result<()> {
             Ok(())
         }

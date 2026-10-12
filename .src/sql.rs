@@ -1,16 +1,13 @@
 //! What every SQL transport shares: where a send target puts its row; the
-//! one statement a `Transport::send` writes, its table and column quoted
-//! as the technology's [`Dialect`] says, and the same statement taken
-//! apart so a session can record what a client inserted without being a
-//! SQL parser; the verb of a statement;
-//! the one fixed table a session answers SELECTs from; and what the
-//! payload column holds, as a Location declares it. What a receive does
-//! with the rows its query read — each an arrival, consumed by the
-//! Location's `accept` statement after its cycle — is [`accept`].
+//! one fixed table a session answers SELECTs from; and what the payload
+//! column holds, as a Location declares it. What a receive does with the
+//! rows its query read — each an arrival, consumed by the Location's
+//! `accept` statement after its cycle — is [`accept`].
 //!
-//! Which delimiters, the bytes literal and the escapes are the dialect
-//! (ADR-0044 clause 2): each technology keeps its own and hands them in,
-//! reading and writing its delimited text through `codec::sql`. Four
+//! SQL itself — the dialect, the INSERT written and taken apart, a
+//! literal, a statement's verb — is `xmip-core-library-sql`'s, one copy
+//! for every domain (ADR-0044, amendment 2026-10-12); a technology names
+//! the dialect it speaks and the URI schemes its Locations open with. Four
 //! technologies carried the rest until 2026-09-14.
 //!
 //! Whether the column holds bytes or text is the Location's [`COLUMN`]
@@ -19,7 +16,7 @@
 //! be UTF-8 are still bytes, and a value that happens to look like the
 //! binary literal in a text column is still text.
 
-use codec::sql::Delimiter;
+use ::sql::{Dialect, Literal};
 use codec::unicode::Form;
 use net::Target;
 use xcore::settings::{Applies, Fixed, Kind, Presence, Read, Setting};
@@ -80,20 +77,15 @@ impl Column {
             .map_err(|error| TransportError::permanent(error.message))
     }
 
-    /// The literal a send inserts `bytes` as: `binary` writes the dialect's
-    /// binary literal, `quote` its string literal.
+    /// The literal a send inserts `bytes` as: the dialect's binary literal
+    /// for a binary column, its string literal for a text one.
     ///
     /// # Errors
     /// A text column's Stream that is not its declared form, or that holds
     /// a NUL, which no text column keeps.
-    pub fn literal(
-        self,
-        bytes: &[u8],
-        quote: impl FnOnce(&str) -> String,
-        binary: impl FnOnce(&[u8]) -> String,
-    ) -> Result<String> {
+    pub fn literal(self, bytes: &[u8], dialect: &Dialect) -> Result<String> {
         let Self::Text(form) = self else {
-            return Ok(binary(bytes));
+            return Ok(dialect.quote_bytes(bytes));
         };
         let text = form.decode(bytes).map_err(|error| {
             TransportError::permanent(format!(
@@ -106,22 +98,18 @@ impl Column {
                 "the column holds text and this Stream carries a NUL, which no text column keeps",
             ));
         }
-        Ok(quote(&text))
+        Ok(dialect.quote_text(&text))
     }
 
-    /// The bytes a value read back as text stands for: what `binary` reads
-    /// from the dialect's binary form, or the text in the declared form.
+    /// The bytes a value read back as text stands for: the bytes the
+    /// dialect's binary form names, or the text in the declared form.
     ///
     /// # Errors
     /// A binary column's value that is not in the dialect's binary form.
-    pub fn bytes(
-        self,
-        value: &str,
-        binary: impl FnOnce(&str) -> Option<Vec<u8>>,
-    ) -> Result<Vec<u8>> {
+    pub fn bytes(self, value: &str, dialect: &Dialect) -> Result<Vec<u8>> {
         match self {
             Self::Text(form) => Ok(form.encode(value)),
-            Self::Binary => binary(value).ok_or_else(|| {
+            Self::Binary => dialect.bytes_of(value).ok_or_else(|| {
                 TransportError::permanent(
                     "the column holds bytes and the value read back is not in the dialect's \
                      binary form; a column that holds text is declared column = \"text\"",
@@ -144,166 +132,55 @@ impl Column {
     }
 }
 
-/// One literal a far end read from an INSERT, in a dialect whose binary
-/// literal is its own syntax rather than a string: `X'…'`, `0x…`.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Literal {
-    /// The bytes a binary literal names.
-    Bytes(Vec<u8>),
-    /// A string literal's text, its escapes undone.
-    Text(String),
-}
-
-/// The verb a statement opens with, upper-cased: `SELECT`, `INSERT`.
-#[must_use]
-pub fn verb(sql: &str) -> String {
-    sql.split_whitespace()
-        .next()
-        .unwrap_or_default()
-        .to_ascii_uppercase()
-}
-
-/// `rest` after `word`, matched without regard to case; `None` where
-/// `rest` does not open with it.
-#[must_use]
-fn strip_word<'a>(rest: &'a str, word: &str) -> Option<&'a str> {
-    let rest = rest.trim_start();
-    let head = rest.get(..word.len())?;
-    head.eq_ignore_ascii_case(word).then(|| &rest[word.len()..])
-}
-
-/// What a SQL technology hands the capability so it can write and read the
-/// technology's one statement: the URI schemes a send target may open
-/// with, the word for what the segment before the table names, and how an
-/// identifier is written, and the marker of its first parameter. Each
-/// technology declares its own as a constant and passes it; nothing here
-/// tells one dialect from another by name.
-#[derive(Clone, Copy, Debug)]
-pub struct Dialect {
-    /// The schemes a send target may open with: the technology's own and
-    /// the ones its users also write (`sqlserver://`, `postgres://`).
-    pub schemes: &'static [&'static str],
-    /// What the segment before the table names: `database`, `service`.
-    pub catalog: &'static str,
-    /// The delimiters a quoted identifier is written between.
-    pub identifier: Delimiter,
-    /// What a bare identifier takes besides letters and digits.
-    pub bare: &'static [char],
-    /// The dialect's first parameter as a statement writes it — `$1`, `?`,
-    /// `@P1`, `:1` — which an `accept` statement names the row by
-    /// ([`accept::ACCEPT`]).
-    pub marker: &'static str,
-}
-
-/// Where a send puts its row: the server, the catalog (database or
-/// service), the table and the column, as a target named them.
+/// Where a send puts its row: the server, the database, the table and the
+/// column, as a target named them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Destination<'a> {
     pub server: &'a str,
-    pub catalog: &'a str,
+    pub database: &'a str,
     pub table: &'a str,
     pub column: &'a str,
 }
 
-impl Dialect {
-    /// Where `target` puts a row: `<scheme>://host:port/<catalog>/<table>
-    /// /<column>`, `host:port/<catalog>/<table>/<column>`, or
-    /// `<table>/<column>` on the configured `server` and `catalog`.
-    ///
-    /// # Errors
-    /// A path that is not catalog/table/column or table/column, or that
-    /// has an empty segment.
-    pub fn destination<'a>(
-        &self,
-        target: &'a str,
-        server: &'a str,
-        catalog: &'a str,
-    ) -> Result<Destination<'a>> {
-        let refused = || {
-            TransportError::permanent(format!(
-                "{target:?} is not {}/table/column or table/column",
-                self.catalog
-            ))
-        };
-        let (server, named) = match Target::naming_server(self.schemes, target) {
-            Some(named) => (named.authority(), named),
-            None => (server, Target::relative(target)),
-        };
-        let segments = named.segments().map_err(|_| refused())?;
-        let (catalog, table, column) = match segments.as_slice() {
-            [catalog, table, column] => (*catalog, *table, *column),
-            [table, column] => (catalog, *table, *column),
-            _ => return Err(refused()),
-        };
-        if catalog.is_empty() {
-            return Err(refused());
-        }
-        Ok(Destination {
-            server,
-            catalog,
-            table,
-            column,
-        })
+/// Where `target` puts a row: `<scheme>://host:port/<database>/<table>
+/// /<column>`, `host:port/<database>/<table>/<column>`, or
+/// `<table>/<column>` on the configured `server` and `database`. `schemes`
+/// are the ones a send target may open with: the technology's own and the
+/// ones its users also write (`sqlserver://`, `postgres://`).
+///
+/// # Errors
+/// A path that is not database/table/column or table/column, or that has
+/// an empty segment.
+pub fn destination<'a>(
+    schemes: &[&str],
+    target: &'a str,
+    server: &'a str,
+    database: &'a str,
+) -> Result<Destination<'a>> {
+    let refused = || {
+        TransportError::permanent(format!(
+            "{target:?} is not database/table/column or table/column"
+        ))
+    };
+    let (server, named) = match Target::naming_server(schemes, target) {
+        Some(named) => (named.authority(), named),
+        None => (server, Target::relative(target)),
+    };
+    let segments = named.segments().map_err(|_| refused())?;
+    let (database, table, column) = match segments.as_slice() {
+        [database, table, column] => (*database, *table, *column),
+        [table, column] => (database, *table, *column),
+        _ => return Err(refused()),
+    };
+    if database.is_empty() {
+        return Err(refused());
     }
-
-    /// `name` as a quoted identifier, every closing delimiter doubled, so
-    /// whatever a target names is one identifier and nothing else.
-    #[must_use]
-    pub fn quote_identifier(&self, name: &str) -> String {
-        self.identifier.quote(name)
-    }
-
-    /// `INSERT INTO <table> (<column>) VALUES (<value>)`, the table and
-    /// column quoted. `value` is what the technology puts in `VALUES`: its
-    /// bind marker where the value travels bound (`:1`), or the literal
-    /// [`Column::literal`] wrote with the dialect's own escaping; never
-    /// text taken from a target.
-    #[must_use]
-    pub fn insert(&self, table: &str, column: &str, value: &str) -> String {
-        format!(
-            "INSERT INTO {} ({}) VALUES ({value})",
-            self.quote_identifier(table),
-            self.quote_identifier(column)
-        )
-    }
-
-    /// One identifier, bare or quoted with its closing delimiter doubled,
-    /// and what follows it.
-    #[must_use]
-    fn read_identifier<'a>(&self, rest: &'a str) -> Option<(String, &'a str)> {
-        let rest = rest.trim_start();
-        if rest.starts_with(self.identifier.open) {
-            return self.identifier.unquote_prefix(rest).ok();
-        }
-        let end = rest
-            .find(|c: char| !(c.is_alphanumeric() || self.bare.contains(&c)))
-            .unwrap_or(rest.len());
-        (end > 0).then(|| (rest[..end].to_string(), &rest[end..]))
-    }
-
-    /// `INSERT INTO <table> (<column>) VALUES (<value>)` taken apart: the
-    /// table, the column and the value. Identifiers are read as this
-    /// dialect writes them and `value` reads one value as the technology
-    /// writes it, returning what follows; anything else, or more than one
-    /// column, is `None`.
-    #[must_use]
-    pub fn parse_insert<'a, V>(
-        &self,
-        sql: &'a str,
-        value: impl Fn(&'a str) -> Option<(V, &'a str)>,
-    ) -> Option<(String, String, V)> {
-        let rest = sql.trim().trim_end_matches(';');
-        let rest = strip_word(rest, "INSERT")?;
-        let rest = strip_word(rest, "INTO")?;
-        let (table, rest) = self.read_identifier(rest)?;
-        let rest = rest.trim_start().strip_prefix('(')?;
-        let (column, rest) = self.read_identifier(rest)?;
-        let rest = rest.trim_start().strip_prefix(')')?;
-        let rest = strip_word(rest, "VALUES")?;
-        let rest = rest.trim_start().strip_prefix('(')?.trim_start();
-        let (value, tail) = value(rest)?;
-        (tail.trim() == ")").then_some((table, column, value))
-    }
+    Ok(Destination {
+        server,
+        database,
+        table,
+        column,
+    })
 }
 
 /// What a session answers a statement with before its fixed table is
@@ -358,17 +235,9 @@ pub fn next_insert<E: Inserted>(
 mod tests {
     use super::*;
 
-    const DIALECT: Dialect = Dialect {
-        schemes: &["example", "alias"],
-        catalog: "database",
-        identifier: Delimiter::BRACKET,
-        bare: &['_', '.'],
-        marker: "@P1",
-    };
+    use ::sql::TSQL;
 
-    fn quoted(rest: &str) -> Option<(String, &str)> {
-        codec::sql::Delimiter::STRING.unquote_prefix(rest).ok()
-    }
+    const SCHEMES: &[&str] = &["example", "alias"];
 
     enum Event {
         Selected,
@@ -384,30 +253,18 @@ mod tests {
         }
     }
 
-    fn quote(text: &str) -> String {
-        format!("'{text}'")
-    }
-
-    fn hex(bytes: &[u8]) -> String {
-        format!("0x{}", codec::hex::encode(bytes))
-    }
-
-    fn unhex(text: &str) -> Option<Vec<u8>> {
-        codec::hex::decode(text.strip_prefix("0x")?).ok()
-    }
-
     #[test]
     fn a_binary_column_takes_every_stream_as_bytes_even_utf8() {
         let column = Column::default();
         assert_eq!(column, Column::Binary);
         assert_eq!(
-            column.literal(b"a row", quote, hex).expect("bytes"),
+            column.literal(b"a row", &TSQL).expect("bytes"),
             "0x6120726f77"
         );
-        assert_eq!(column.literal(&[0xff], quote, hex).expect("bytes"), "0xff");
-        assert_eq!(column.bytes("0x6120", unhex).expect("binary form"), b"a ");
+        assert_eq!(column.literal(&[0xff], &TSQL).expect("bytes"), "0xff");
+        assert_eq!(column.bytes("0x6120", &TSQL).expect("binary form"), b"a ");
         let refused = column
-            .bytes("a row", unhex)
+            .bytes("a row", &TSQL)
             .expect_err("not the binary form");
         assert!(refused.message.contains("column = \"text\""), "{refused}");
         assert!(!refused.retryable);
@@ -418,26 +275,21 @@ mod tests {
     #[test]
     fn a_text_column_decodes_strictly_in_its_form_and_refuses_the_rest() {
         let utf8 = Column::Text(Form::Utf8);
-        assert_eq!(utf8.literal(b"a row", quote, hex).expect("text"), "'a row'");
+        assert_eq!(utf8.literal(b"a row", &TSQL).expect("text"), "N'a row'");
         assert_eq!(
-            utf8.bytes("0x61", unhex).expect("text"),
+            utf8.bytes("0x61", &TSQL).expect("text"),
             b"0x61",
             "text, not hex"
         );
-        let refused = utf8
-            .literal(&[0xff, 0xfe], quote, hex)
-            .expect_err("not UTF-8");
+        let refused = utf8.literal(&[0xff, 0xfe], &TSQL).expect_err("not UTF-8");
         assert!(refused.message.contains("utf-8"), "{refused}");
-        assert!(utf8.literal(b"a\0row", quote, hex).is_err(), "a NUL");
+        assert!(utf8.literal(b"a\0row", &TSQL).is_err(), "a NUL");
         let utf16 = Column::Text(Form::Utf16Le);
-        assert_eq!(
-            utf16.literal(&[0x41, 0], quote, hex).expect("UTF-16LE"),
-            "'A'"
-        );
-        assert_eq!(utf16.bytes("A", unhex).expect("encoded"), [0x41, 0]);
+        assert_eq!(utf16.literal(&[0x41, 0], &TSQL).expect("UTF-16LE"), "N'A'");
+        assert_eq!(utf16.bytes("A", &TSQL).expect("encoded"), [0x41, 0]);
         assert_eq!(utf16.stored(Literal::Text("A".into())), [0x41, 0]);
         assert_eq!(utf16.stored(Literal::Bytes(vec![0xff])), [0xff]);
-        assert!(utf16.literal(b"A", quote, hex).is_err(), "an odd length");
+        assert!(utf16.literal(b"A", &TSQL).is_err(), "an odd length");
     }
 
     #[test]
@@ -469,13 +321,13 @@ mod tests {
 
     #[test]
     fn a_target_is_read_once_for_every_scheme_the_dialect_names() {
-        let at = |server, catalog, table, column| Destination {
+        let at = |server, database, table, column| Destination {
             server,
-            catalog,
+            database,
             table,
             column,
         };
-        let read = |target| DIALECT.destination(target, "configured:1", "orders");
+        let read = |target| destination(SCHEMES, target, "configured:1", "orders");
         assert_eq!(
             read("example://h:1/db/t/c").expect("scheme"),
             at("h:1", "db", "t", "c")
@@ -497,43 +349,6 @@ mod tests {
                 "{refused}"
             );
         }
-    }
-
-    #[test]
-    fn an_insert_quotes_what_a_target_names_so_it_stays_one_identifier() {
-        fn marker(rest: &str) -> Option<((), &str)> {
-            rest.strip_prefix(":1").map(|tail| ((), tail))
-        }
-        let sql = DIALECT.insert("in]box; DROP TABLE x --", "pay load", ":1");
-        assert_eq!(
-            sql,
-            "INSERT INTO [in]]box; DROP TABLE x --] ([pay load]) VALUES (:1)"
-        );
-        assert_eq!(
-            DIALECT.parse_insert(&sql, marker),
-            Some(("in]box; DROP TABLE x --".into(), "pay load".into(), ()))
-        );
-    }
-
-    #[test]
-    fn an_insert_of_one_column_is_taken_apart_with_the_dialect_handed_in() {
-        assert_eq!(
-            DIALECT.parse_insert("insert into inbox ( payload ) values ( 'x' );", quoted),
-            Some(("inbox".into(), "payload".into(), "x".into()))
-        );
-        assert_eq!(
-            DIALECT.parse_insert("INSERT INTO dbo.inbox ([a]) VALUES ('x')", quoted),
-            Some(("dbo.inbox".into(), "a".into(), "x".into()))
-        );
-        let parse = |sql| DIALECT.parse_insert(sql, quoted);
-        assert!(parse("INSERT INTO inbox (a, b) VALUES ('x', 'y')").is_none());
-        assert!(parse("INSERT INTO inbox (a) VALUES ('open").is_none());
-        assert!(parse("INSERT INTO [open (a) VALUES ('x')").is_none());
-        assert!(parse("UPDATE inbox SET a = 'x'").is_none());
-        assert_eq!(strip_word("  Values (", "VALUES"), Some(" ("));
-        assert_eq!(strip_word("VAL", "VALUES"), None);
-        assert_eq!(verb("  select 1"), "SELECT");
-        assert_eq!(verb(""), "");
     }
 
     #[test]

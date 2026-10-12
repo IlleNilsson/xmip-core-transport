@@ -5,10 +5,11 @@ use crate::arrived::Arrived;
 use crate::claim::ResourceClaim;
 use crate::direction::Directions;
 use crate::error::Result;
+use crate::waiting::Waiting;
 
 /// What every protocol implements.
 ///
-/// Seven methods, and nothing here knows which protocols exist. That is what
+/// Eight methods, and nothing here knows which protocols exist. That is what
 /// makes lifting one out into `xmip-core-transport-<name>` a move rather than a
 /// rewrite.
 pub trait Transport {
@@ -43,6 +44,12 @@ pub trait Transport {
     /// next receive, or each on its own, and why. No default: every
     /// technology says, in its own words.
     fn arrivals(&self) -> Arrivals;
+
+    /// Whether this technology's receive waits for what arrives, or looks
+    /// and returns at once — and why. No default: every technology says.
+    /// After a polled receive that found nothing, the runtime waits its
+    /// poll interval before it asks again; a waiting one it asks at once.
+    fn waiting(&self) -> Waiting;
 
     /// Deliver bytes to a target expressed in this protocol's own terms.
     ///

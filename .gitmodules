@@ -121,9 +121,9 @@
 [submodule "xmip-core-transport-mssql"]
 	path = mssql
 	url = https://github.com/IlleNilsson/xmip-core-transport-mssql.git
-[submodule "xmip-core-transport-mysql"]
-	path = mysql
-	url = https://github.com/IlleNilsson/xmip-core-transport-mysql.git
+[submodule "xmip-core-transport-mariadb"]
+	path = mariadb
+	url = https://github.com/IlleNilsson/xmip-core-transport-mariadb.git
 [submodule "xmip-core-transport-as2"]
 	path = as2
 	url = https://github.com/IlleNilsson/xmip-core-transport-as2.git
@@ -238,9 +238,6 @@
 [submodule "xmip-core-transport-opc-ua"]
 	path = opc-ua
 	url = https://github.com/IlleNilsson/xmip-core-transport-opc-ua.git
-[submodule "xmip-core-transport-oracle"]
-	path = oracle
-	url = https://github.com/IlleNilsson/xmip-core-transport-oracle.git
 [submodule "xmip-core-transport-smb"]
 	path = smb
 	url = https://github.com/IlleNilsson/xmip-core-transport-smb.git

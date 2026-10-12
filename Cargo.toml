@@ -52,10 +52,15 @@ asn1 = { package = "xmip-core-library-asn1", git = "https://github.com/IlleNilss
 tls = { package = "xmip-core-library-tls", git = "https://github.com/IlleNilsson/xmip-core-library-tls", branch = "main", optional = true }
 # The network primitives, whose failures this crate's error takes with `From`,
 # so a technology that asks over HTTP (`net::http`) or reads a URL
-# (`net::Endpoint`) writes `?`; and the target a SQL dialect reads
+# (`net::Endpoint`) writes `?`; and the target a SQL send names
 # (`net::Target`). The technologies depend on it themselves; nothing
 # re-exports it.
 net = { package = "xmip-core-library-net", git = "https://github.com/IlleNilsson/xmip-core-library-net", branch = "main" }
+# SQL: the dialect a SQL technology names, which writes the literal a
+# column takes and binds a row's name into an `accept` statement
+# (`sql::accept`). The technologies depend on it themselves; nothing
+# re-exports it.
+sql = { package = "xmip-core-library-sql", git = "https://github.com/IlleNilsson/xmip-core-library-sql", branch = "main" }
 # The readiness wait a bounded accept blocks on (socket.rs): poll(2), and
 # WSAPoll on Windows, behind a safe call. Only its `event` module; std has
 # no accept with a deadline, and the alternative was a nap and a retry.
