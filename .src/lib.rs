@@ -41,7 +41,8 @@
 //!   answer.rs           the answer a peer waits for after the cycle: on its connection,
 //!                       busy until given and shut when let go, or as a datagram
 //!   error.rs            failure, and whether saying it again would help
-//!   claim.rs            one holder of a collidable artefact at a time
+//!   claim.rs            one holder of a collidable artefact at a time; the file
+//!                       family's turn and rename, written once (claim/)
 //!   configured.rs       the settings a technology declares, and the one way a
 //!                       Location's address and settings build it (ADR-0064)
 //!   node.rs             the node a transport is built on, by its location, given
@@ -55,6 +56,8 @@
 //!   bound.rs            a bound UDP socket waiting for its one exchange
 //!   held.rs             a far end in this process: a bus device, a radio's server, a pipe
 //!   standing.rs         in-process sessions stood up by address until taken
+//!   concurrent.rs       a bound TCP listener serving every client it accepts at
+//!                       once, until let go: one server several nodes race at
 //!
 //! the near ends         what a Receive Location keeps between its receives
 //!   kept.rs             a listener or socket bound on the first receive and kept
@@ -103,6 +106,7 @@ pub mod arrived;
 pub mod body;
 pub mod bound;
 pub mod claim;
+pub mod concurrent;
 pub mod configured;
 pub mod contiguous;
 pub mod direction;

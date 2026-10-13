@@ -83,8 +83,9 @@ pub trait Transport {
     /// Three answers, and they are different:
     ///
     /// - `None` — no artefact to claim. A listening socket, a broker topic.
-    /// - `Some(&NoNativeClaim)` — artefacts, and no locking. FTP, SFTP, IMAP.
-    /// - `Some(&…)` — the protocol's own atomic claim.
+    /// - `Some(&NoNativeClaim)` — artefacts, and no claim built yet. IMAP.
+    /// - `Some(&…)` — the protocol's own atomic claim; the file family's
+    ///   turn and rename (`claim::Sited`): file, FTP, FTPS, SFTP.
     fn claims(&self) -> Option<&dyn ResourceClaim> {
         None
     }

@@ -2,10 +2,40 @@
 //!
 //! ADR-0024. This replaces exclusiveness, which held a lease inside Xmip and
 //! could never say where a cluster-wide one would live.
+//!
+//! The file family's claim — a turn, then a rename to a name recording the
+//! claimant, the return, the recovery of a starting node — is written once
+//! here (amendments 2026-09-26 and 2026-10-13), over the few operations
+//! each technology of the family implements ([`ClaimSite`]):
+//!
+//! ```text
+//!   site.rs       the operations at the far end: list, take a turn, rename,
+//!                 restore, delete
+//!   claimant.rs   who claims, the names a claim writes, the sequence, and
+//!                 the recovery of what a starting node's name still holds
+//!   claiming.rs   one Location's claims: the stability check, the verdict,
+//!                 and what waits to go back
+//!   hold.rs       a claimed artefact's acknowledgement, returned if let go
+//!   sited.rs      the endpoint's claim of one artefact, for any technology
+//!                 of the family
+//! ```
+
+mod claimant;
+mod claiming;
+mod hold;
+#[cfg(test)]
+mod memory;
+mod site;
+mod sited;
 
 use std::fmt;
 
 use crate::error::Result;
+
+pub use claimant::{Claim, Claimant, MARK, TURN, claim_of, is_claimed, is_turn, turn_of};
+pub use claiming::{Claiming, Held, Taken};
+pub use site::{ClaimSite, Listed, Restore};
+pub use sited::{Site, Sited};
 
 /// One discrete claimable thing, addressed in its protocol's own terms.
 ///
@@ -69,7 +99,7 @@ impl Claimed {
 ///
 /// | family | native claim |
 /// | --- | --- |
-/// | file, local or shared | an atomic rename to a name recording the node and the time |
+/// | file, FTP, FTPS, SFTP | a turn, then a rename to a name recording the node and the time |
 /// | Azure Blob | a renewable blob lease |
 /// | S3 | `PUT` with `If-None-Match: *` on a claim key |
 /// | Google Cloud Storage | a generation precondition |
@@ -106,17 +136,13 @@ pub trait ResourceClaim: Send + Sync {
     fn release(&self, claimed: Claimed) -> Result<()>;
 }
 
-/// A protocol with artefacts and no locking. ADR-0024 clause 5.
+/// A protocol with artefacts whose claim is not built yet. ADR-0024 clause 5.
 ///
-/// FTP, SFTP and IMAP. Neither protocol has locking, and they are **not** made
-/// safe by renaming the artefact at claim time — that puts a second mechanism
-/// in the one place nothing is supposed to move, to defend against a non-Xmip
-/// client polling the same directory, which no mechanism defends against
-/// anyway.
-///
-/// What these transports need instead is a stability check: an artefact whose
-/// size and timestamp are unchanged across two consecutive listings, or a
-/// producer that writes to a temporary name and renames on completion.
+/// IMAP, which offers no exclusive step at all, and the object stores,
+/// databases and shares whose own exclusive step is still to be taken
+/// (ADR-0024, amendment 2026-10-13, which records each one's answer). The
+/// file family — file, FTP, FTPS, SFTP — claims through [`Claiming`] since
+/// that amendment, and answers its own claim.
 ///
 /// Saying this once in a type beats every such transport writing the same three
 /// stubs and one of them quietly returning something else.
@@ -139,7 +165,196 @@ impl ResourceClaim for NoNativeClaim {
 
 #[cfg(test)]
 mod tests {
+    use super::memory::Memory;
     use super::*;
+    use crate::acknowledgement::{Refusal, Verdict};
+    use crate::node::NodeLocation;
+
+    fn claiming(place: usize) -> Claiming<u64> {
+        let node = NodeLocation::new(format!("process-{}/place-{place}", std::process::id()));
+        Claiming::new(Claimant::of(&node))
+    }
+
+    /// What two listings take: the first finds, the second takes what the
+    /// first found unchanged.
+    fn settled(claims: &Claiming<u64>, site: &Memory) -> Vec<Taken> {
+        assert!(claims.take(site).expect("listed").is_empty(), "found first");
+        claims.take(site).expect("listed again")
+    }
+
+    #[test]
+    fn two_claimants_racing_take_every_artefact_exactly_once() {
+        const FILES: usize = 400;
+        let site = Memory::default();
+        for file in 0..FILES {
+            site.drop_file(&format!("order-{file}.edi"), file.to_string().as_bytes());
+        }
+        let claimants = [claiming(0), claiming(1)];
+        let took: Vec<Vec<Vec<u8>>> = std::thread::scope(|scope| {
+            let racing: Vec<_> = claimants
+                .iter()
+                .map(|claims| {
+                    let site = site.clone();
+                    scope.spawn(move || {
+                        let mut took = Vec::new();
+                        while !site.names().is_empty() {
+                            for taken in claims.take(&site).expect("taken") {
+                                took.push(site.read(&taken.claimed).expect("claimed"));
+                                claims
+                                    .told(&site, &taken.claimed, Some(Verdict::Accepted), true)
+                                    .expect("accepted");
+                            }
+                        }
+                        took
+                    })
+                })
+                .collect();
+            racing
+                .into_iter()
+                .map(|one| one.join().expect("a claimant"))
+                .collect()
+        });
+        let all: Vec<&Vec<u8>> = took.iter().flatten().collect();
+        let once: std::collections::BTreeSet<&Vec<u8>> = all.iter().copied().collect();
+        assert_eq!(all.len(), FILES, "every artefact taken, none twice");
+        assert_eq!(once.len(), FILES);
+    }
+
+    #[test]
+    fn a_turn_taken_leaves_the_artefact_and_a_refused_rename_drops_the_turn() {
+        let site = Memory::default();
+        site.drop_file("order.edi", b"ISA");
+        let claims = claiming(0);
+        assert!(
+            site.take_turn(&turn_of("order.edi"), "another")
+                .expect("taken")
+        );
+        assert!(settled(&claims, &site).is_empty(), "another holds its turn");
+        site.drop_turn(&turn_of("order.edi"), "another")
+            .expect("dropped");
+        site.refuse_renaming("order.edi");
+        assert!(claims.take(&site).expect("listed").is_empty(), "refused");
+        assert_eq!(
+            site.names().len(),
+            1,
+            "its turn is gone: {:?}",
+            site.names()
+        );
+    }
+
+    #[test]
+    fn a_changed_artefact_waits_for_a_listing_that_finds_it_unchanged() {
+        let site = Memory::default();
+        let claims = claiming(0);
+        site.drop_file("order.edi", b"ISA");
+        assert!(claims.take(&site).expect("found").is_empty());
+        site.drop_file("order.edi", b"ISA*GS");
+        assert!(claims.take(&site).expect("grown").is_empty(), "it changed");
+        let taken = claims.take(&site).expect("unchanged");
+        assert_eq!(taken.len(), 1);
+        assert_eq!(taken[0].dropped, "order.edi");
+        assert!(taken[0].claimed.starts_with("order.edi.xmip-claim."));
+    }
+
+    #[test]
+    fn a_refusal_returns_and_remembers_and_a_newer_file_holds_a_return() {
+        let site = Memory::default();
+        let claims = claiming(0);
+        site.drop_file("order.edi", b"old");
+        let taken = settled(&claims, &site).remove(0);
+        site.drop_file("order.edi", b"new");
+        let refused = Some(Verdict::Refused(Refusal::Unacceptable));
+        let told = claims.told(&site, &taken.claimed, refused, true);
+        assert!(told.is_err_and(|held| held.retryable), "held");
+        assert!(claims.held()[0].why.contains("dropped since"));
+        let newer = settled(&claims, &site).remove(0);
+        claims
+            .told(&site, &newer.claimed, Some(Verdict::Accepted), true)
+            .expect("consumed");
+        assert!(claims.held().is_empty(), "its name freed, it went back");
+        assert_eq!(site.read("order.edi").expect("returned"), b"old");
+        for _ in 0..3 {
+            assert!(claims.take(&site).expect("listed").is_empty(), "refused");
+        }
+        assert_eq!(settled(&claiming(1), &site).len(), 1, "another finds it");
+    }
+
+    #[test]
+    fn a_starting_claimant_returns_its_own_claims_and_turns_and_no_others() {
+        let site = Memory::default();
+        site.drop_file("mine.edi", b"1");
+        assert_eq!(settled(&claiming(0), &site).len(), 1);
+        site.drop_file("theirs.edi", b"2");
+        assert_eq!(settled(&claiming(1), &site).len(), 1);
+        // Both die holding their claims, and the first a turn as well.
+        let me = claiming(0);
+        assert!(
+            site.take_turn(&turn_of("x.edi"), me.claimant().as_str())
+                .expect("turn")
+        );
+        assert!(site.names().iter().all(|name| is_claimed(name)));
+
+        me.recover(&site).expect("recovered");
+        let after = site.names();
+        assert!(
+            after.contains("mine.edi"),
+            "its own claim returned: {after:?}"
+        );
+        assert!(
+            after
+                .iter()
+                .any(|name| name.starts_with("theirs.edi") && name.contains(MARK)),
+            "another's claim is its own: {after:?}"
+        );
+        assert!(
+            !after.contains(&turn_of("x.edi")),
+            "its turn removed: {after:?}"
+        );
+    }
+
+    struct Located(Memory, Claiming<u64>);
+
+    impl Sited for Located {
+        type Stamp = u64;
+        fn claiming(&self) -> &Claiming<u64> {
+            &self.1
+        }
+        fn with_site<T>(&self, act: &mut dyn FnMut(Site<'_, u64>) -> Result<T>) -> Result<T> {
+            act(&self.0)
+        }
+    }
+
+    #[test]
+    fn one_artefact_is_claimed_by_its_address_and_released_back() {
+        let located = Located(Memory::default(), claiming(0));
+        located.0.drop_file("order.edi", b"ISA");
+        let artefact = Artefact::new("sftp://party.example/out/order.edi");
+        assert!(located.is_available(&artefact).expect("asked"));
+        let claimed = located.claim(&artefact).expect("claimed");
+        assert!(
+            claimed.token.starts_with("order.edi.xmip-claim."),
+            "{claimed:?}"
+        );
+        assert!(!located.is_available(&artefact).expect("asked"), "held");
+        assert!(located.claim(&artefact).is_err_and(|held| held.retryable));
+        located.release(claimed).expect("released");
+        assert!(located.is_available(&artefact).expect("asked again"));
+    }
+
+    #[test]
+    fn a_claimed_name_reads_back_and_a_turn_is_never_an_arrival() {
+        let claim = claim_of("order.edi.xmip-claim.node%2F1.1790000000123456789");
+        assert_eq!(
+            claim,
+            Some(Claim {
+                dropped: "order.edi",
+                claimant: "node%2F1"
+            })
+        );
+        assert!(is_claimed("order.edi.xmip-claim"));
+        assert!(!is_claimed("order.edi"));
+        assert!(claim_of("order.edi.xmip-claim.node.later").is_none());
+    }
 
     #[test]
     fn an_artefact_is_addressed_in_its_own_protocols_terms() {
@@ -151,12 +366,12 @@ mod tests {
 
     #[test]
     fn a_protocol_with_artefacts_and_no_locking_says_so() {
-        let ftp = NoNativeClaim;
-        let artefact = Artefact::new("sftp://party.example/out/order-1.edi");
+        let imap = NoNativeClaim;
+        let artefact = Artefact::new("imap://party.example/INBOX;UID=1");
 
-        assert!(ftp.is_available(&artefact).expect("asked"));
+        assert!(imap.is_available(&artefact).expect("asked"));
 
-        let claimed = ftp.claim(&artefact).expect("claimed");
+        let claimed = imap.claim(&artefact).expect("claimed");
 
         assert_eq!(claimed.artefact, artefact);
         assert!(
