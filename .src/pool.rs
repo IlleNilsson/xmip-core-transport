@@ -496,6 +496,6 @@ mod tests {
         let broken = delivered(&mut Subscribed(Vec::new(), false), next);
         assert!(broken.expect_err("broken").retryable);
         let ended = delivered(&mut Subscribed(Vec::new(), false), |_| Ok(None::<u8>));
-        assert!(ended.expect("the far end closed").is_empty());
+        assert_eq!(ended.expect("the far end closed"), [] as [u8; 0]);
     }
 }

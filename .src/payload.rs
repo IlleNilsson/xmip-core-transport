@@ -55,7 +55,7 @@ mod tests {
     fn the_edges_are_the_six_shapes_and_the_sizes_are_patterned() {
         let edges = edge_payloads();
         assert_eq!(edges.len(), 6);
-        assert!(edges[0].1.is_empty());
+        assert_eq!(edges[0].1, [] as [u8; 0]);
         assert_eq!(edges[2].1.len(), 256);
         assert_eq!(edges[5].1, b"\r\n".repeat(400));
         let sizes = sized_payloads();
