@@ -253,3 +253,12 @@
 [submodule "xmip-core-transport-azure"]
 	path = azure
 	url = https://github.com/IlleNilsson/xmip-core-transport-azure.git
+[submodule "oracle"]
+	path = oracle
+	url = https://github.com/IlleNilsson/xmip-core-transport-oracle.git
+[submodule "xmip-core-transport-db2"]
+	path = db2
+	url = https://github.com/IlleNilsson/xmip-core-transport-db2.git
+[submodule "xmip-core-transport-mysql"]
+	path = mysql
+	url = https://github.com/IlleNilsson/xmip-core-transport-mysql.git
