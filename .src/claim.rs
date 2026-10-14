@@ -247,7 +247,7 @@ mod tests {
         let site = Memory::default();
         let claims = claiming(0);
         site.drop_file("order.edi", b"ISA");
-        assert!(claims.take(&site).expect("found").is_empty());
+        assert_eq!(claims.take(&site).expect("found"), [] as [Taken; 0]);
         site.drop_file("order.edi", b"ISA*GS");
         assert!(claims.take(&site).expect("grown").is_empty(), "it changed");
         let taken = claims.take(&site).expect("unchanged");

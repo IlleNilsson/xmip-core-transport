@@ -217,11 +217,9 @@ mod tests {
                 ("b.edi".to_string(), "0x2".to_string())
             ]
         );
-        assert!(
-            LISTING
-                .objects("<Blob><Name>unclosed")
-                .expect("read")
-                .is_empty()
+        assert_eq!(
+            LISTING.objects("<Blob><Name>unclosed").expect("read"),
+            [] as [(String, String); 0]
         );
         let error = LISTING
             .objects("<Blob><Name>a.edi</Name></Blob>")

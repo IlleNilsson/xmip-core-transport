@@ -274,6 +274,32 @@ pub fn split(stream: TcpStream) -> Result<(BufReader<TcpStream>, TcpStream)> {
     Ok((BufReader::new(stream), writer))
 }
 
+/// End a connection whose peer may still be sending, once the last answer
+/// is written: stop writing, then read and drop what arrives until the
+/// peer closes or the connection's read timeout passes. A socket closed
+/// with bytes unread is reset on Windows, and the reset can overtake the
+/// answer before the peer reads it: a DICOM store refused before its data
+/// set was read lost its C-STORE-RSP one run in three (2026-10-14).
+///
+/// # Errors
+/// Where the connection broke before the peer's close was read.
+pub fn finish(stream: &TcpStream) -> Result<()> {
+    stream
+        .shutdown(std::net::Shutdown::Write)
+        .map_err(|e| classify("ending the answer", &e))?;
+    let mut unread = [0u8; 4096];
+    loop {
+        match io::Read::read(&mut &*stream, &mut unread) {
+            Ok(0) => return Ok(()),
+            Ok(_) => {}
+            Err(e) if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {
+                return Ok(());
+            }
+            Err(e) => return Err(classify("reading to the peer's close", &e)),
+        }
+    }
+}
+
 /// Bind a datagram socket at `bind` with `timeout` on its receives, and
 /// report the address actually assigned.
 ///

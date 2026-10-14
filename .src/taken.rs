@@ -72,6 +72,6 @@ mod tests {
         let taken = Taken::new("file:///in/order.edi", b"ISA*00*".to_vec());
         assert_eq!(taken.origin_uri, "file:///in/order.edi");
         assert_eq!(taken.bytes, b"ISA*00*");
-        assert!(taken.observed.is_empty());
+        assert_eq!(taken.observed, [] as [(String, String); 0]);
     }
 }
