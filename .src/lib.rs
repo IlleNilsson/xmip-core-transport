@@ -90,6 +90,9 @@
 //!   payload.rs          the edge and sized payloads a loopback round is exercised with
 //!   latency.rs          a round's median, p99 and worst, and a plain loopback TCP
 //!                       wake beside it: near real time, apart from load
+//!   unread.rs           a peer that keeps sending while it waits for its answer:
+//!                       a far end answering early must end through
+//!                       `socket::finish`
 //! ```
 //!
 //! **Nothing here names a protocol.** Each transport technology is its own
@@ -135,6 +138,8 @@ pub mod standing;
 pub mod stuffed;
 pub mod taken;
 pub mod together;
+#[cfg(any(test, feature = "test-support"))]
+pub mod unread;
 pub mod waiting;
 
 pub use acknowledgement::{Acknowledgement, Refusal, Verdict};
