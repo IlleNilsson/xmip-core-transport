@@ -79,5 +79,10 @@ context = { package = "xmip-core-context", git = "https://github.com/IlleNilsson
 # themselves; nothing re-exports it.
 xcore = { package = "xmip-core", git = "https://github.com/IlleNilsson/xmip-core", branch = "main" }
 
+[dev-dependencies]
+# A loopback address no one holds, for what a test wants nothing listening
+# at or binds later (`net::fixture::unheld`).
+net = { package = "xmip-core-library-net", git = "https://github.com/IlleNilsson/xmip-core-library-net", branch = "main", features = ["test-support"] }
+
 [profile.dev.package."*"]
 opt-level = 3
