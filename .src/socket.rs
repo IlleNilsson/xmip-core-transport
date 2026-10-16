@@ -477,8 +477,7 @@ mod tests {
 
     #[test]
     fn a_refused_connection_is_retryable_and_a_datagram_socket_binds() {
-        let (listener, address) = bind_tcp("127.0.0.1:0").expect("bind");
-        drop(listener);
+        let address = net::fixture::unheld().to_string();
         let error = connect_tcp(&address, None).expect_err("refused");
         assert!(error.retryable);
         let (socket, address) =
