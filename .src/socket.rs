@@ -411,22 +411,31 @@ mod tests {
             }
         });
         // What the accept adds once the connection has landed: the peer's
-        // wake-up and its handshake are the peer's, not the accept's, and
-        // under the other tests running beside this one they are load.
-        let mut waited = Duration::ZERO;
+        // wake-up and its handshake are the peer's, not the accept's. Held
+        // as the fastest of each five rounds against a plain loopback wake
+        // beside each (xcore::latency): a wake that waited its turn for a
+        // processor, under the other tests or a busy machine, is in some
+        // rounds only.
+        let mut control = crate::latency::TcpControl::start();
+        let mut waited = Vec::new();
         for _ in 0..ROUNDS {
             go.send(()).expect("go");
             let (mut stream, _) =
                 accept_tcp(&listener, Some(Duration::from_secs(5))).expect("accepted");
             let accepted = Instant::now();
             let connected = lands.recv().expect("landed");
-            waited += accepted.saturating_duration_since(connected);
+            waited.push(accepted.saturating_duration_since(connected));
             stream.write_all(b"x").expect("answer");
+            control.poke();
         }
         peer.join().expect("peer");
+        let waited = xcore::latency::spread("an accept after the connection landed", waited);
+        let machine = control.load();
         assert!(
-            waited < Duration::from_millis(u64::from(ROUNDS)),
-            "{ROUNDS} accepts waited {waited:?}, over a millisecond each"
+            waited.fastest_of_five < Duration::from_millis(1) + machine.fastest_of_five,
+            "an accept waited {:?}, the fastest of five, the machine's own {:?}",
+            waited.fastest_of_five,
+            machine.fastest_of_five
         );
     }
 

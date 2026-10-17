@@ -88,8 +88,8 @@
 //!
 //! test support          compiled for tests only, `test-support` from a dev-dependency
 //!   payload.rs          the edge and sized payloads a loopback round is exercised with
-//!   latency.rs          a round's median, p99 and worst, and a plain loopback TCP
-//!                       wake beside it: near real time, apart from load
+//!   latency.rs          a plain loopback TCP wake beside a round, its spread
+//!                       xcore::latency's: near real time, apart from load
 //!   unread.rs           a peer that keeps sending while it waits for its answer:
 //!                       a far end answering early must end through
 //!                       `socket::finish`

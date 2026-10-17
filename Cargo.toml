@@ -34,10 +34,11 @@ expect_used = "allow"
 # The estate's TLS, for the technologies that guard a connection.
 tls = ["dep:tls"]
 
-# The loopback payloads every technology's tests drive (payload.rs). A
-# technology asks for it from its dev-dependencies, so the fixtures reach
-# its tests and never a production build (ADR-0044).
-test-support = []
+# The loopback payloads every technology's tests drive (payload.rs), and the
+# plain loopback wake a latency test is held beside (latency.rs, over
+# xcore::latency). A technology asks for it from its dev-dependencies, so the
+# fixtures reach its tests and never a production build (ADR-0044).
+test-support = ["xcore/test-support"]
 
 [dependencies]
 # XML character data, escaped and unescaped as every reader in the estate
@@ -83,6 +84,9 @@ xcore = { package = "xmip-core", git = "https://github.com/IlleNilsson/xmip-core
 # A loopback address no one holds, for what a test wants nothing listening
 # at or binds later (`net::fixture::unheld`).
 net = { package = "xmip-core-library-net", git = "https://github.com/IlleNilsson/xmip-core-library-net", branch = "main", features = ["test-support"] }
+# A round's spread and spin (`xcore::latency`), which latency.rs measures
+# its plain wake with.
+xcore = { package = "xmip-core", git = "https://github.com/IlleNilsson/xmip-core", branch = "main", features = ["test-support"] }
 
 [profile.dev.package."*"]
 opt-level = 3
