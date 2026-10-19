@@ -6,7 +6,7 @@
 
 use crate::error::{Result, TransportError};
 
-use super::claimant::is_claimed;
+use super::claimant::may_arrive;
 use super::claiming::Claiming;
 use super::site::ClaimSite;
 use super::{Artefact, Claimed, ResourceClaim};
@@ -47,7 +47,7 @@ fn name_of(artefact: &Artefact) -> &str {
 impl<T: Sited> ResourceClaim for T {
     fn is_available(&self, artefact: &Artefact) -> Result<bool> {
         let name = name_of(artefact);
-        if is_claimed(name) {
+        if !may_arrive(name) {
             return Ok(false);
         }
         self.with_site(&mut |site| Ok(site.listed()?.iter().any(|(listed, _)| listed == name)))

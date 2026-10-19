@@ -26,7 +26,8 @@
 //! its holder, and removed once the rename is done. A claimant that finds
 //! the turn taken leaves the file to the next listing.
 //!
-//! A name carrying the mark, or a turn's name, is never an arrival.
+//! A name carrying the mark, a turn's name, or a sent file's not yet in
+//! place (`unfinished.rs`), is never an arrival ([`may_arrive`]).
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -34,6 +35,7 @@ use crate::error::Result;
 use crate::node::NodeLocation;
 
 use super::site::ClaimSite;
+use super::unfinished::is_unfinished;
 
 /// What a claimed name carries between the dropped name and the claimant.
 pub const MARK: &str = ".xmip-claim.";
@@ -103,19 +105,21 @@ impl Claimant {
     }
 
     /// Every artefact this claimant left claimed at `site`, to be returned
-    /// under the name it was dropped with, and every turn it left, removed:
-    /// what a node does as it starts, since whatever it held before, nothing
-    /// holds now.
+    /// under the name it was dropped with; every turn it left, and every
+    /// sent file its sends left unfinished, removed
+    /// ([`Claimant::remove_unfinished`]): what a node does as it starts,
+    /// since whatever it held or was writing before, nothing holds now.
     ///
     /// # Errors
-    /// Where `site` could not be listed, or a turn not removed.
+    /// Where `site` could not be listed, or a turn or a sent file not
+    /// removed.
     pub fn recover<P: ClaimSite + ?Sized>(&self, site: &P) -> Result<Vec<String>> {
-        let mut left = Vec::new();
-        for (name, _) in site.listed()? {
-            if claim_of(&name).is_some_and(|claim| claim.claimant == self.0) {
-                left.push(name);
-            }
-        }
+        let (left, others): (Vec<String>, Vec<String>) = site
+            .listed()?
+            .into_iter()
+            .map(|(name, _)| name)
+            .partition(|name| claim_of(name).is_some_and(|claim| claim.claimant == self.0));
+        self.remove_unfinished(site, others)?;
         for turn in site.turns()? {
             if site.holder(&turn)?.as_deref() == Some(self.0.as_str()) {
                 site.drop_turn(&turn, &self.0)?;
@@ -166,4 +170,11 @@ pub fn is_turn(name: &str) -> bool {
 #[must_use]
 pub fn is_claimed(name: &str) -> bool {
     is_turn(name) || claim_of(name).is_some()
+}
+
+/// Whether `name` may be an arrival: it records no claim, is no turn, and
+/// is no sent file not yet in place ([`super::is_unfinished`]).
+#[must_use]
+pub fn may_arrive(name: &str) -> bool {
+    !is_claimed(name) && !is_unfinished(name)
 }

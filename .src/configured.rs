@@ -35,15 +35,26 @@ pub trait Configured: Transport + Sized {
     fn configured(address: &str, settings: &Read) -> Result<Self>;
 
     /// Read what a Location on `side` gave through [`Configured::SETTINGS`],
-    /// and build this technology from it: the one way from a Location's
-    /// table to a transport.
+    /// and build this technology from it, on that side
+    /// ([`Configured::sided`]): the one way from a Location's table to a
+    /// transport.
     ///
     /// # Errors
     /// Every setting the declaration refuses, each naming the technology and
     /// the setting; then whatever [`Configured::configured`] refuses.
     fn open(address: &str, side: Applies, given: &[(String, Given)]) -> Result<Self> {
         let read = Self::SETTINGS.read(side, given)?;
-        Self::configured(address, &read)
+        Self::configured(address, &read).map(|built| built.sided(side))
+    }
+
+    /// This transport on `side`, as [`Configured::open`] builds it. A
+    /// technology whose address means another thing on each side keeps it
+    /// — a file Location's is a drop directory to a receive and the file a
+    /// send writes, which the node's start recovers in
+    /// ([`Configured::on_node`]); any other keeps nothing, as by default.
+    #[must_use]
+    fn sided(self, _side: Applies) -> Self {
+        self
     }
 
     /// This transport on the node at `node`: what the runtime calls once,

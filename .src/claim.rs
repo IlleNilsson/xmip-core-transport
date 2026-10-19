@@ -18,6 +18,9 @@
 //!   hold.rs       a claimed artefact's acknowledgement, returned if let go
 //!   sited.rs      the endpoint's claim of one artefact, for any technology
 //!                 of the family
+//!   unfinished.rs the name a sent file is written under beside its target,
+//!                 carrying the node, and its removal as that node starts
+//!                 (amendment 2026-10-19)
 //! ```
 
 mod claimant;
@@ -27,15 +30,19 @@ mod hold;
 mod memory;
 mod site;
 mod sited;
+mod unfinished;
 
 use std::fmt;
 
 use crate::error::Result;
 
-pub use claimant::{Claim, Claimant, MARK, TURN, claim_of, is_claimed, is_turn, turn_of};
+pub use claimant::{
+    Claim, Claimant, MARK, TURN, claim_of, is_claimed, is_turn, may_arrive, turn_of,
+};
 pub use claiming::{Claiming, Held, Taken};
 pub use site::{ClaimSite, Listed, Restore};
 pub use sited::{Site, Sited};
+pub use unfinished::{SENDING, Unfinished, is_unfinished, sender_of};
 
 /// One discrete claimable thing, addressed in its protocol's own terms.
 ///
