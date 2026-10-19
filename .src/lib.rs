@@ -27,6 +27,10 @@
 //!                       on its own, and why
 //!   waiting.rs          whether a technology's receive waits for what arrives or
 //!                       looks and returns at once, and why
+//!   outgoing.rs         what a send delivers: a body of a known length, read from its
+//!                       start a piece at a time as often as asked, and its key
+//!   sending.rs          whether a technology sends a body as it reads it or gathers
+//!                       it whole first, and why
 //!   acknowledgement.rs  what the far end is told once the receive cycle ended: the
 //!                       verdict, or why the protocol could not defer (at-most-once)
 //!   taken.rs            what a far end took whole, already answered
@@ -125,12 +129,14 @@ pub mod listening;
 pub mod login;
 pub mod loopback;
 pub mod node;
+pub mod outgoing;
 #[cfg(any(test, feature = "test-support"))]
 pub mod payload;
 pub mod pool;
 pub mod protocol;
 pub mod refused;
 pub mod sender;
+pub mod sending;
 pub mod serving;
 pub mod socket;
 pub mod sql;
@@ -155,9 +161,11 @@ pub use listening::{Accepting, Listening};
 pub use login::Login;
 pub use loopback::{FarEnd, LOOPBACK_TIMEOUT, Loopback, UNBLOCK_TIMEOUT};
 pub use node::NodeLocation;
+pub use outgoing::Outgoing;
 pub use pool::{Pool, Pooled};
 pub use protocol::Transport;
 pub use refused::Refused;
+pub use sending::Sending;
 pub use taken::Taken;
 pub use waiting::Waiting;
 

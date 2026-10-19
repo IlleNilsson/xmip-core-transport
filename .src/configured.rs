@@ -82,7 +82,7 @@ mod tests {
         fn directions(&self) -> Directions {
             Directions::BOTH
         }
-        fn receive(&self) -> Result<Vec<Arrived>> {
+        fn receive_up_to(&self, _most: usize) -> Result<Vec<Arrived>> {
             Ok(Vec::new())
         }
         fn arrivals(&self) -> crate::Arrivals {
@@ -91,7 +91,10 @@ mod tests {
         fn waiting(&self) -> crate::Waiting {
             crate::Waiting::Polled("it looks and finds nothing")
         }
-        fn send(&self, _target: &str, _bytes: &[u8]) -> Result<()> {
+        fn sending(&self) -> crate::Sending {
+            crate::Sending::Streamed("nothing is held, as nothing is sent")
+        }
+        fn send_from(&self, _target: &str, _outgoing: crate::Outgoing<'_>) -> Result<()> {
             Ok(())
         }
     }

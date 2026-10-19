@@ -304,8 +304,12 @@ mod tests {
             crate::Waiting::Polled("the mailbox is looked in and the receive returns")
         }
 
+        fn sending(&self) -> crate::Sending {
+            crate::Sending::Gathered("a letter is dropped in the mailbox whole")
+        }
+
         /// The letter, kept in the mailbox until it is accepted.
-        fn receive(&self) -> Result<Vec<crate::Arrived>> {
+        fn receive_up_to(&self, _most: usize) -> Result<Vec<crate::Arrived>> {
             let Some(bytes) = self.letter.lock().expect("lock").clone() else {
                 return Ok(Vec::new());
             };
@@ -323,8 +327,8 @@ mod tests {
             )])
         }
 
-        fn send(&self, target: &str, bytes: &[u8]) -> Result<()> {
-            self.send_to(target, bytes)
+        fn send_from(&self, target: &str, outgoing: crate::Outgoing<'_>) -> Result<()> {
+            self.send_to(target, &outgoing.gather()?)
         }
     }
 
