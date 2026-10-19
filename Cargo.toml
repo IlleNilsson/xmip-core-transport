@@ -31,7 +31,8 @@ unwrap_used = "warn"
 expect_used = "allow"
 
 [features]
-# The estate's TLS, for the technologies that guard a connection.
+# The estate's TLS, for the technologies that guard a connection, and the
+# Guard a node terminates its receives' TLS with (guard.rs).
 tls = ["dep:tls"]
 
 # The loopback payloads every technology's tests drive (payload.rs), and the
