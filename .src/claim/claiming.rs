@@ -119,15 +119,23 @@ impl<S: Clone + Eq + Send + 'static> Claiming<S> {
         &self.inner.refused
     }
 
-    /// Every artefact at `site` that is finished, not refused as it lies,
-    /// and won: each claimed. A held artefact whose name was freed goes
-    /// back first, and is listed with the rest.
+    /// At most `most` of the artefacts at `site` that are finished, not
+    /// refused as they lie, and won: each claimed. **The rest stay
+    /// unclaimed at the far end**, remembered as found, so the next listing
+    /// takes them as it takes any finished one — a directory of thousands
+    /// is claimed as the runtime has room, never all at once. A held
+    /// artefact whose name was freed goes back first, and is listed with
+    /// the rest.
     ///
     /// # Errors
     /// Where `site` could not be listed, or the far end failed before
     /// anything was claimed. What was claimed before a failure is handed
     /// back; the rest is left to the next listing.
-    pub fn take<P: ClaimSite<Stamp = S> + ?Sized>(&self, site: &P) -> Result<Vec<Taken>> {
+    pub fn take<P: ClaimSite<Stamp = S> + ?Sized>(
+        &self,
+        site: &P,
+        most: usize,
+    ) -> Result<Vec<Taken>> {
         if self.inner.recovering.swap(false, Ordering::SeqCst) && self.recover(site).is_err() {
             self.inner.recovering.store(true, Ordering::SeqCst);
         }
@@ -147,8 +155,10 @@ impl<S: Clone + Eq + Send + 'static> Claiming<S> {
         let mut broken = None;
         for (name, stamp) in found {
             // Unchanged since the last listing, and still so once its turn
-            // is held: finished, and the artefact that was found.
-            if broken.is_some() || listed.get(&name) != Some(&stamp) {
+            // is held: finished, and the artefact that was found. Past
+            // `most`, found and left for the next listing.
+            let full = taken.len() >= most;
+            if broken.is_some() || full || listed.get(&name) != Some(&stamp) {
                 seen.insert(name, stamp);
                 continue;
             }

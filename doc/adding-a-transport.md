@@ -13,27 +13,49 @@ sections 2, 7, 8 and 10. What follows is what a transport adds to that.
 
 ## The base you implement
 
-`Transport` (`.src/protocol.rs`) — seven methods, and nothing in it names a
-protocol:
+`Transport` (`.src/protocol.rs`) — and nothing in it names a protocol:
 
 ```rust
 pub trait Transport {
     fn name(&self) -> &'static str;                          // the token in the repo name
     fn directions(&self) -> Directions;                      // receive, send, or both
-    fn receive(&self) -> Result<Vec<Arrived>>;               // empty vec = nothing arrived
+    fn receive_up_to(&self, most: usize) -> Result<Vec<Arrived>>; // at most `most`; the rest stay
     fn arrivals(&self) -> Arrivals;                          // told in order, or each alone
-    fn send(&self, target: &str, bytes: &[u8]) -> Result<()>;
-    fn send_keyed(&self, target: &str, bytes: &[u8], key: &str) -> Result<()>; // send, by default
+    fn waiting(&self) -> Waiting;                            // waits for an arrival, or polled
+    fn sending(&self) -> Sending;                            // streams the body, or gathers it
+    fn send_from(&self, target: &str, outgoing: Outgoing<'_>) -> Result<()>;
     fn claims(&self) -> Option<&dyn ResourceClaim> { None }  // exactly-once pickup (ADR-0024)
+    // provided: receive() is receive_up_to without a bound, send(target, bytes)
+    // is send_from over bytes held in memory — what a test or a tool asks
 }
 ```
 
-`send_keyed` is how the runtime sends: `key` is the Journey's identifier,
-the deduplication key (runtime-model section 15, *Delivery semantics*).
-Where the protocol has a native identifier its far end deduplicates by — a
-message id, a record key, an idempotency header — put the key there and say
-so in the README; the default ignores it and sends as `send` does, at least
-once.
+`receive_up_to` is how the runtime receives: `most` is the room its
+Location's pool and the node have, one at least. Take no more; leave the
+rest at the far end — a file unclaimed, a message on its broker, a row in
+its table — for a later receive. The shared machinery takes the bound for
+you: the file family's claim (`claim::Claiming::take`), an object store's
+listing (`listed::listed`), a SQL query's rows (`sql::accept::arrivals`), a
+kept subscription drained (`pool::delivered`). A protocol that hands over
+one arrival a receive takes one whatever `most` says.
+
+`send_from` is how the runtime sends: `outgoing` is the Message as the
+Ledger keeps it, read a chunk at a time, its length known before its first
+byte (`.src/outgoing.rs`), and its key (`Outgoing::key`), the Journey's
+identifier, the deduplication key (runtime-model section 15, *Delivery
+semantics*). Write the body on as it is read where the protocol allows —
+`Outgoing::write_to` into a socket, a file, a data connection, or
+`Outgoing::pieces` for requests of the protocol's own size, an SFTP, SMB or
+NFS `WRITE` — and declare `Sending::Streamed` with why; gather it whole
+(`Outgoing::gather`) only where the protocol needs all of it first — a
+datagram, a frame, a record with its digest, a signature over the whole —
+and declare `Sending::Gathered` with why: the runtime's byte budget for
+sends counts the whole Message for a send that gathers. Each read opens the
+body from its start, so a kept session that fails on reuse and carries the
+exchange again on a new one reads it again, never from where the first
+attempt left it. Where the protocol has a native identifier its far end
+deduplicates by — a message id, a record key, an idempotency header — put
+the key there and say so in the README; every other sends at least once.
 
 And `Configured` (`.src/configured.rs`) beside it: the settings the
 technology takes beyond the Location's address, declared once, and the one

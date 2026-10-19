@@ -68,8 +68,9 @@ pub fn accepting(
 /// remembered.
 pub type RefusedRows = Refused<Option<String>, u64>;
 
-/// The rows a query read, each one Stream, whole, but those `refused`
-/// holds as they lie: its name the first column as `name` reads it — its
+/// At most `most` of the rows a query read, each one Stream, whole, but those
+/// `refused` holds as they lie — the rest left in their table, unaccepted, for a
+/// later receive: its name the first column as `name` reads it — its
 /// index where that is NULL — its origin what `origin` makes of that name,
 /// its body the last column as `bytes` reads it — empty where that is NULL
 /// — and its acknowledgement what `acknowledgement` makes of the name the
@@ -80,6 +81,7 @@ pub type RefusedRows = Refused<Option<String>, u64>;
 /// Where `bytes` refuses a value.
 pub fn arrivals<V>(
     rows: Vec<Vec<Option<V>>>,
+    most: usize,
     refused: &RefusedRows,
     origin: impl Fn(&str) -> String,
     name: impl Fn(&V) -> String,
@@ -103,7 +105,7 @@ pub fn arrivals<V>(
         |(_, _, stamp, _)| Some(*stamp),
     );
     let mut arrived = Vec::with_capacity(read.len());
-    for (index, named, stamp, body) in read {
+    for (index, named, stamp, body) in read.into_iter().take(most) {
         let told = acknowledgement(named.as_deref());
         let told = match &named {
             Some(_) => refused.remembering(named.clone(), stamp, told),
@@ -164,6 +166,7 @@ mod tests {
                 .collect();
             arrivals(
                 rows,
+                usize::MAX,
                 &refused,
                 |name| format!("example://db?row={name}"),
                 Clone::clone,
@@ -201,8 +204,20 @@ mod tests {
         ];
         let named = Arc::new(Mutex::new(Vec::new()));
         let seen = Arc::clone(&named);
+        let two = arrivals(
+            rows.clone(),
+            2,
+            &RefusedRows::default(),
+            str::to_string,
+            Clone::clone,
+            |value| Ok(value.into_bytes()),
+            |_| Acknowledgement::unconsumed(),
+        )
+        .expect("rows");
+        assert_eq!(two.len(), 2, "no more than asked");
         let arrived = arrivals(
             rows,
+            usize::MAX,
             &RefusedRows::default(),
             |name| format!("example://db?row={name}"),
             Clone::clone,
@@ -228,6 +243,7 @@ mod tests {
         assert!(
             arrivals(
                 vec![vec![Some(1u8)]],
+                usize::MAX,
                 &RefusedRows::default(),
                 str::to_string,
                 ToString::to_string,

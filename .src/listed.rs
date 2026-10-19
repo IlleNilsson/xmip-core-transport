@@ -61,15 +61,17 @@ impl Listing {
     }
 }
 
-/// Every object `list` lists and `refused` does not hold as it lies, as an
-/// arrival from `origin` of its name whose body `get` fetches on its first
-/// read and whose acknowledgement `delete`s it on acceptance, leaves it and
-/// remembers it in `refused` on refusal, and leaves it on failure.
+/// At most `most` of the objects `list` lists and `refused` does not hold as
+/// they lie, each an arrival from `origin` of its name whose body `get`
+/// fetches on its first read and whose acknowledgement `delete`s it on
+/// acceptance, leaves it and remembers it in `refused` on refusal, and
+/// leaves it on failure. The rest stay in the store for a later listing.
 ///
 /// # Errors
 /// As `list`: nothing is fetched or deleted here.
 pub fn listed<G, D>(
     list: impl FnOnce() -> Result<Vec<Object>>,
+    most: usize,
     refused: &Refused<String, String>,
     origin: impl Fn(&str) -> String,
     get: G,
@@ -83,6 +85,7 @@ where
     Ok(refused
         .sift(list()?, |(name, _)| name, |(_, stamp)| Some(stamp.clone()))
         .into_iter()
+        .take(most)
         .map(|(name, stamp)| {
             let from = origin(&name);
             let (fetching, named) = (Arc::clone(&get), name.clone());
@@ -118,6 +121,14 @@ mod tests {
     }
 
     fn receive(store: &Store, refused: &Refused<String, String>) -> Result<Vec<Arrived>> {
+        receive_up_to(store, usize::MAX, refused)
+    }
+
+    fn receive_up_to(
+        store: &Store,
+        most: usize,
+        refused: &Refused<String, String>,
+    ) -> Result<Vec<Arrived>> {
         let (getting, deleting) = (Arc::clone(store), Arc::clone(store));
         listed(
             || {
@@ -128,6 +139,7 @@ mod tests {
                     .map(|(n, (_, tag))| (n.clone(), tag.clone()))
                     .collect())
             },
+            most,
             refused,
             |name| format!("s3://inbox/{name}"),
             move |name| {
@@ -186,6 +198,22 @@ mod tests {
     }
 
     #[test]
+    fn a_listing_hands_over_no_more_than_asked_and_leaves_the_rest_in_the_store() {
+        let store = store(&[("a.edi", b"1"), ("b.edi", b"2"), ("c.edi", b"3")]);
+        let refused = Refused::default();
+        for arrived in receive_up_to(&store, 2, &refused).expect("listed") {
+            arrived.taken().expect("accepted");
+        }
+        assert_eq!(
+            store.lock().expect("lock").0.len(),
+            1,
+            "one left in the store"
+        );
+        let rest = receive_up_to(&store, 2, &refused).expect("listed again");
+        assert_eq!(names(&rest), ["s3://inbox/c.edi"]);
+    }
+
+    #[test]
     fn a_refused_object_written_again_is_a_new_arrival() {
         let store = store(&[("a.edi", b"one")]);
         let refused = Refused::default();
@@ -231,6 +259,7 @@ mod tests {
     fn a_failed_list_is_the_receives_failure_and_a_failed_get_its_bodys() {
         let error = listed(
             || Err(protocol_error("403 AccessDenied")),
+            usize::MAX,
             &Refused::default(),
             str::to_string,
             |_| Ok(Vec::new()),

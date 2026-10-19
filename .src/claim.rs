@@ -178,8 +178,11 @@ mod tests {
     /// What two listings take: the first finds, the second takes what the
     /// first found unchanged.
     fn settled(claims: &Claiming<u64>, site: &Memory) -> Vec<Taken> {
-        assert!(claims.take(site).expect("listed").is_empty(), "found first");
-        claims.take(site).expect("listed again")
+        assert!(
+            claims.take(site, usize::MAX).expect("listed").is_empty(),
+            "found first"
+        );
+        claims.take(site, usize::MAX).expect("listed again")
     }
 
     #[test]
@@ -198,7 +201,7 @@ mod tests {
                     scope.spawn(move || {
                         let mut took = Vec::new();
                         while !site.names().is_empty() {
-                            for taken in claims.take(&site).expect("taken") {
+                            for taken in claims.take(&site, usize::MAX).expect("taken") {
                                 took.push(site.read(&taken.claimed).expect("claimed"));
                                 claims
                                     .told(&site, &taken.claimed, Some(Verdict::Accepted), true)
@@ -233,7 +236,10 @@ mod tests {
         site.drop_turn(&turn_of("order.edi"), "another")
             .expect("dropped");
         site.refuse_renaming("order.edi");
-        assert!(claims.take(&site).expect("listed").is_empty(), "refused");
+        assert!(
+            claims.take(&site, usize::MAX).expect("listed").is_empty(),
+            "refused"
+        );
         assert_eq!(
             site.names().len(),
             1,
@@ -243,14 +249,42 @@ mod tests {
     }
 
     #[test]
+    fn a_listing_claims_no_more_than_asked_and_leaves_the_rest_for_the_next() {
+        let site = Memory::default();
+        for file in 0..10 {
+            site.drop_file(&format!("order-{file}.edi"), b"ISA");
+        }
+        let claims = claiming(0);
+        assert!(
+            claims.take(&site, 3).expect("found").is_empty(),
+            "found first"
+        );
+        let mut took = 0;
+        for _ in 0..4 {
+            let taken = claims.take(&site, 3).expect("taken");
+            assert!(taken.len() <= 3, "{} claimed at once", taken.len());
+            took += taken.len();
+            let claimed = site.names().iter().filter(|name| is_claimed(name)).count();
+            assert_eq!(claimed, took, "the rest unclaimed: {:?}", site.names());
+        }
+        assert_eq!(took, 10, "each finished one taken by the next listing");
+    }
+
+    #[test]
     fn a_changed_artefact_waits_for_a_listing_that_finds_it_unchanged() {
         let site = Memory::default();
         let claims = claiming(0);
         site.drop_file("order.edi", b"ISA");
-        assert_eq!(claims.take(&site).expect("found"), [] as [Taken; 0]);
+        assert_eq!(
+            claims.take(&site, usize::MAX).expect("found"),
+            [] as [Taken; 0]
+        );
         site.drop_file("order.edi", b"ISA*GS");
-        assert!(claims.take(&site).expect("grown").is_empty(), "it changed");
-        let taken = claims.take(&site).expect("unchanged");
+        assert!(
+            claims.take(&site, usize::MAX).expect("grown").is_empty(),
+            "it changed"
+        );
+        let taken = claims.take(&site, usize::MAX).expect("unchanged");
         assert_eq!(taken.len(), 1);
         assert_eq!(taken[0].dropped, "order.edi");
         assert!(taken[0].claimed.starts_with("order.edi.xmip-claim."));
@@ -274,7 +308,10 @@ mod tests {
         assert!(claims.held().is_empty(), "its name freed, it went back");
         assert_eq!(site.read("order.edi").expect("returned"), b"old");
         for _ in 0..3 {
-            assert!(claims.take(&site).expect("listed").is_empty(), "refused");
+            assert!(
+                claims.take(&site, usize::MAX).expect("listed").is_empty(),
+                "refused"
+            );
         }
         assert_eq!(settled(&claiming(1), &site).len(), 1, "another finds it");
     }

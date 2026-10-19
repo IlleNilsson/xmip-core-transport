@@ -235,9 +235,11 @@ fn waiting(stream: &TcpStream) -> Option<bool> {
     waiting
 }
 
-/// What a kept subscription delivers until it goes quiet: `next` asked for
-/// one delivery after another on `session`, until the far end closes
-/// (`None`) or nothing comes within the session's timeout.
+/// What a kept subscription delivers until it goes quiet, at most `most`:
+/// `next` asked for one delivery after another on `session`, until the far
+/// end closes (`None`), nothing comes within the session's timeout, or
+/// `most` arrived — the rest wait at the far end or in the socket, unanswered,
+/// for the next receive.
 ///
 /// A timeout on a subscription the far end still holds is quiet, not a
 /// failure: the session is kept, subscribed, for the next receive, and what
@@ -251,10 +253,11 @@ fn waiting(stream: &TcpStream) -> Option<bool> {
 /// goes again on a new session where this one was kept.
 pub fn delivered<S: Pooled, T>(
     session: &mut S,
+    most: usize,
     mut next: impl FnMut(&mut S) -> Result<Option<T>>,
 ) -> Result<Vec<T>> {
     let mut arrived = Vec::new();
-    loop {
+    while arrived.len() < most {
         match next(session) {
             Ok(Some(one)) => arrived.push(one),
             Ok(None) => return Ok(arrived),
@@ -264,6 +267,7 @@ pub fn delivered<S: Pooled, T>(
             Err(error) => return Err(error),
         }
     }
+    Ok(arrived)
 }
 
 #[cfg(test)]
@@ -483,7 +487,7 @@ mod tests {
                 .exchange(
                     &1,
                     || Ok(Subscribed(vec![2, 1], true)),
-                    |s| delivered(s, next),
+                    |s| delivered(s, usize::MAX, next),
                 )
                 .expect("quiet");
             assert!(quiet.len() <= 2);
@@ -491,11 +495,17 @@ mod tests {
         assert_eq!(pool.opened(), 1, "a quiet subscription is kept");
         // Closed after one delivery: that one is handed over, not lost.
         let mut closing = Subscribed(vec![7], false);
-        assert_eq!(delivered(&mut closing, next).expect("one"), [7]);
+        assert_eq!(delivered(&mut closing, usize::MAX, next).expect("one"), [7]);
         // Closed before any: a failure, so the pool opens a new one.
-        let broken = delivered(&mut Subscribed(Vec::new(), false), next);
+        let broken = delivered(&mut Subscribed(Vec::new(), false), usize::MAX, next);
         assert!(broken.expect_err("broken").retryable);
-        let ended = delivered(&mut Subscribed(Vec::new(), false), |_| Ok(None::<u8>));
+        let ended = delivered(&mut Subscribed(Vec::new(), false), usize::MAX, |_| {
+            Ok(None::<u8>)
+        });
         assert_eq!(ended.expect("the far end closed"), [] as [u8; 0]);
+        // No more than asked: the rest wait for the next receive.
+        let mut holding = Subscribed(vec![3, 2, 1], true);
+        assert_eq!(delivered(&mut holding, 2, next).expect("two"), [1, 2]);
+        assert_eq!(delivered(&mut holding, 2, next).expect("the rest"), [3]);
     }
 }
