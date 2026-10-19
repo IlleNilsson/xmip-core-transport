@@ -118,6 +118,8 @@ pub mod configured;
 pub mod contiguous;
 pub mod direction;
 pub mod error;
+#[cfg(feature = "tls")]
+pub mod guard;
 pub mod headers;
 pub mod held;
 pub mod kept;
@@ -156,6 +158,8 @@ pub use claim::{Artefact, Claimed, NoNativeClaim, ResourceClaim};
 pub use configured::Configured;
 pub use direction::Directions;
 pub use error::{Result, TransportError};
+#[cfg(feature = "tls")]
+pub use guard::Guard;
 pub use headers::Headers;
 pub use listening::{Accepting, Listening};
 pub use login::Login;

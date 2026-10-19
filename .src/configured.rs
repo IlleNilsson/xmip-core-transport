@@ -61,6 +61,21 @@ pub trait Configured: Transport + Sized {
     fn on_node(self, _node: &NodeLocation) -> Result<Self> {
         Ok(self)
     }
+
+    /// This transport guarded by `guard`, the TLS the node terminates its
+    /// receives with — `None` where the node configured no `receive`
+    /// certificate (`crate::guard`): what the runtime calls once, after
+    /// [`Configured::on_node`]. A technology whose Location's settings say
+    /// it terminates TLS keeps it, and refuses to be built without one; any
+    /// other keeps nothing, as by default.
+    ///
+    /// # Errors
+    /// Where the Location asks for TLS and the node has no `receive`
+    /// certificate to present.
+    #[cfg(feature = "tls")]
+    fn guarded_by(self, _guard: Option<&crate::guard::Guard>) -> Result<Self> {
+        Ok(self)
+    }
 }
 
 #[cfg(test)]
