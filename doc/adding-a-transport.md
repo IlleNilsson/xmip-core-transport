@@ -144,9 +144,9 @@ table alone, and the service is built without it
 ([built, not in the assembled service](../../../../../doc/architecture/estate-map.md#module-loading)). So a new
 transport needs three more edits and a rebuild — a `transport-<name>`
 feature in the estate root's `Cargo.toml`, its line in
-`.src/service/built.rs`'s `transports()`, and the domain profile under
-`deploy/profile/domain` that serves it — and then `Build-XmipService -Site
-<name>` for each site that should carry it. Only then may a node's TOML name
+`.src/service/built.rs`'s `transports()`, and its repository name in the
+`technologies` of each site under `deploy/site` that should carry it — and
+then `Build-XmipService -Site <name>` for each of them. Only then may a node's TOML name
 it; a Location naming a transport its program was not built with is refused
 as the node starts.
 
