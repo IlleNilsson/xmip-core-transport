@@ -30,7 +30,7 @@ use crate::acknowledgement::Verdict;
 use crate::error::{Result, TransportError};
 use crate::refused::Refused;
 
-use super::claimant::{Claimant, claim_of, is_claimed};
+use super::claimant::{Claimant, claim_of, may_arrive};
 use super::site::{ClaimSite, Restore};
 
 /// An artefact a listing claimed: the name it was dropped with, and the
@@ -143,7 +143,7 @@ impl<S: Clone + Eq + Send + 'static> Claiming<S> {
         let found: Vec<_> = site
             .listed()?
             .into_iter()
-            .filter(|(name, _)| !is_claimed(name))
+            .filter(|(name, _)| may_arrive(name))
             .collect();
         let found = self
             .inner

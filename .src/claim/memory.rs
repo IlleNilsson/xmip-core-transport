@@ -1,10 +1,13 @@
 //! A location of the file family held in memory, to prove the claim
 //! sequence on: names to bytes and stamps, its turns, and a clock that
 //! counts its writes. Every operation is made under one lock, as a far end
-//! makes each of its own atomically.
+//! makes each of its own atomically, and the time the far end spends on
+//! them is counted, so a test measures what the claim does around it.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::ops::{Deref, DerefMut};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::time::{Duration, Instant};
 
 use crate::error::Result;
 
@@ -19,15 +22,51 @@ struct Held {
     writes: u64,
     /// Names whose rename the far end refuses, as it does a held file.
     refusing: BTreeSet<String>,
+    /// The time spent in the far end's operations so far.
+    spent: Duration,
 }
 
 /// The location; cloned, the same one.
 #[derive(Clone, Default)]
 pub struct Memory(Arc<Mutex<Held>>);
 
+/// One operation at the far end: its time added to what the far end spent
+/// as it ends.
+struct Operation<'a> {
+    held: MutexGuard<'a, Held>,
+    started: Instant,
+}
+
+impl Deref for Operation<'_> {
+    type Target = Held;
+    fn deref(&self) -> &Held {
+        &self.held
+    }
+}
+
+impl DerefMut for Operation<'_> {
+    fn deref_mut(&mut self) -> &mut Held {
+        &mut self.held
+    }
+}
+
+impl Drop for Operation<'_> {
+    fn drop(&mut self) {
+        let spent = self.started.elapsed();
+        self.held.spent += spent;
+    }
+}
+
 impl Memory {
-    fn held(&self) -> std::sync::MutexGuard<'_, Held> {
-        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    fn held(&self) -> Operation<'_> {
+        let started = Instant::now();
+        let held = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        Operation { held, started }
+    }
+
+    /// The time spent in the far end's operations so far.
+    pub fn spent(&self) -> Duration {
+        self.held().spent
     }
 
     /// `name` written as `bytes`.

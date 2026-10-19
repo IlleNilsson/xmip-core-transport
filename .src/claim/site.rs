@@ -41,9 +41,11 @@ pub trait ClaimSite {
     /// time, as the far end gives them.
     type Stamp: Clone + Eq + Send + 'static;
 
-    /// Every artefact that may be an arrival, each with its stamp: files,
-    /// never directories, and nothing a send of this technology is still
-    /// writing. Turns and claimed names are left out by the caller.
+    /// Every artefact lying at the location, each with its stamp: files,
+    /// never directories. Turns, claimed names and sent files not yet in
+    /// place are left out by the caller ([`super::may_arrive`]), and a
+    /// starting node finds among them what it left
+    /// ([`super::Claimant::recover`]).
     ///
     /// # Errors
     /// Where the location could not be listed.
