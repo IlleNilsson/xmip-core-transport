@@ -1,6 +1,9 @@
 //! What a send delivers: a Message's bytes, its length known before the
 //! first of them, read from its start as often as a send needs, a piece at
-//! a time; and the delivery's deduplication key.
+//! a time; the delivery's deduplication key; and the Message's context,
+//! which a technology that names what it writes reads the name from — a
+//! file Send Location the name the file was received under
+//! (`context::property::FILE_NAME`; ADR-0024, amendment 2026-10-20).
 //!
 //! The runtime hands a transport the Message as the Ledger keeps it, a
 //! chunk at a time (`runtime-model.md` section 10), never read whole before
@@ -21,6 +24,8 @@ use std::borrow::Cow;
 use std::fmt;
 use std::io::{self, Read, Write};
 
+use context::MessageContext;
+
 use crate::error::{Result, TransportError, classify};
 
 /// The bytes a streamed body is written on in, as the standard library's
@@ -38,6 +43,8 @@ pub struct Outgoing<'a> {
     /// Asked before the first byte goes: whether the send is still the
     /// sender's to make.
     still: Option<&'a dyn Fn() -> bool>,
+    /// The Message's context, where the sender is the runtime.
+    context: Option<&'a MessageContext>,
 }
 
 enum Body<'a> {
@@ -54,6 +61,7 @@ impl<'a> Outgoing<'a> {
             body: Body::Opened(Box::new(open)),
             key: None,
             still: None,
+            context: None,
         }
     }
 
@@ -65,7 +73,24 @@ impl<'a> Outgoing<'a> {
             body: Body::Held(bytes),
             key: None,
             still: None,
+            context: None,
         }
+    }
+
+    /// The Message's, carrying its `context`: what the runtime hands every
+    /// send, so a technology that names what it writes reads the name the
+    /// Message carries.
+    #[must_use]
+    pub const fn carrying(mut self, context: &'a MessageContext) -> Self {
+        self.context = Some(context);
+        self
+    }
+
+    /// The Message's context, where the sender handed one: the runtime
+    /// always does, a test or a tool sending held bytes does not.
+    #[must_use]
+    pub const fn context(&self) -> Option<&'a MessageContext> {
+        self.context
     }
 
     /// Delivered under `key`: the delivery's deduplication key, the
@@ -244,6 +269,7 @@ impl fmt::Debug for Outgoing<'_> {
             .field("length", &self.length)
             .field("key", &self.key)
             .field("checked", &self.still.is_some())
+            .field("carrying", &self.context.is_some())
             .finish_non_exhaustive()
     }
 }
