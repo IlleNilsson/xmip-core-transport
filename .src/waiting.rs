@@ -14,9 +14,16 @@
 //!
 //! **Every transport says which, and why** ([`crate::Transport::waiting`]),
 //! as it says how its arrivals are told ([`crate::Arrivals`]): there is no
-//! default that guesses. A technology whose far end can tell it of a change
-//! — a file system's change notification, a database's `LISTEN` — still
-//! polls today; one that waits on such a notice is [`Waiting::Waits`].
+//! default that guesses.
+//!
+//! **A polled technology whose far end tells of a change says where**
+//! ([`crate::Transport::notice`], [`Notice`]): the runtime then waits for
+//! that word rather than its poll interval, and lists again the moment it
+//! comes, so an arrival is taken as it lands; the poll becomes a recovery
+//! sweep at its own cadence (`[tuning] receive_sweep`), for what lay there
+//! before the watch began or a word that was missed. The file transport's
+//! drop directory is one, told by the file system's change notification
+//! (ADR-0024, amendment 2026-10-20); a database's `LISTEN` would be another.
 
 /// How a transport's receive meets a far end with nothing for it, and the
 /// reason in words.
@@ -45,6 +52,16 @@ impl Waiting {
             Self::Waits(because) | Self::Polled(because) => because,
         }
     }
+}
+
+/// Where a polled technology's far end tells of a change, for the runtime
+/// to wait on between its receives.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Notice {
+    /// A directory of this computer's file system, whose change
+    /// notification tells of a file created in it, renamed into it, written
+    /// or removed.
+    Directory(std::path::PathBuf),
 }
 
 #[cfg(test)]

@@ -45,6 +45,9 @@ pub struct Outgoing<'a> {
     still: Option<&'a dyn Fn() -> bool>,
     /// The Message's context, where the sender is the runtime.
     context: Option<&'a MessageContext>,
+    /// Waited on before the far end may see the Message: until it is
+    /// durable where its sender keeps it.
+    kept: Option<&'a dyn Fn() -> Result<()>>,
 }
 
 enum Body<'a> {
@@ -62,6 +65,7 @@ impl<'a> Outgoing<'a> {
             key: None,
             still: None,
             context: None,
+            kept: None,
         }
     }
 
@@ -74,6 +78,7 @@ impl<'a> Outgoing<'a> {
             key: None,
             still: None,
             context: None,
+            kept: None,
         }
     }
 
@@ -113,6 +118,29 @@ impl<'a> Outgoing<'a> {
     pub const fn checked(mut self, still: &'a dyn Fn() -> bool) -> Self {
         self.still = Some(still);
         self
+    }
+
+    /// Let its far end see it only once `kept` returns: the runtime hands a
+    /// technology that holds its delivery back ([`crate::Transport::holds_back`])
+    /// a Message whose Publication is still being synced to the Ledger, so the
+    /// send is written meanwhile and made visible once the Message is
+    /// durable (ADR-0018, amendment 2026-10-20).
+    #[must_use]
+    pub const fn kept_by(mut self, kept: &'a dyn Fn() -> Result<()>) -> Self {
+        self.kept = Some(kept);
+        self
+    }
+
+    /// Wait until the Message is durable where its sender keeps it: at once
+    /// where it is, or where the sender said nothing of it.
+    ///
+    /// # Errors
+    ///
+    /// Where it could not be kept: the far end must not see it, and the
+    /// send fails retryable, its Journey kept or its sender told to send
+    /// again.
+    pub fn kept(&self) -> Result<()> {
+        self.kept.map_or(Ok(()), |kept| kept())
     }
 
     /// Its length in bytes, known before any is read.

@@ -66,6 +66,19 @@ pub trait ClaimSite {
     /// Where the far end could not be asked.
     fn stamp(&self, name: &str) -> Result<Option<Self::Stamp>>;
 
+    /// Whether a writer still holds `name` open, where the far end can
+    /// tell: `Some(false)` while one writes it, `Some(true)` once none
+    /// does — finished, without waiting for a second listing — and `None`
+    /// where it cannot tell, so the stability check decides (ADR-0024,
+    /// amendment 2026-10-20). Nothing tells, unless a technology says.
+    ///
+    /// # Errors
+    /// Where the far end could not be asked.
+    fn finished(&self, name: &str) -> Result<Option<bool>> {
+        let _ = name;
+        Ok(None)
+    }
+
     /// Create `turn` only where nothing of that name exists, recording
     /// `claimant` as its holder: `false` where it exists already.
     ///
