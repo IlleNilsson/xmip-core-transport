@@ -1,13 +1,16 @@
 //! One Receive Location's claims over a location of the file family: what
 //! it takes, what it hands back, and what waits to go back.
 //!
-//! **A file is taken once it is finished, and by one claimant.** A listing
-//! takes an artifact only where its stamp is what the listing before found
-//! (ADR-0024 clause 5, the stability check, which the amendment of
-//! 2026-10-13 keeps), and still is once its turn is held; it is then
-//! claimed ([`Claimant::claim`]). What the listing did not take is
-//! remembered for the next one, so the memory is never more than the far
-//! end holds.
+//! **A file is taken once it is finished, and by one claimant.** Where the
+//! far end tells whether a writer still holds an artifact
+//! ([`ClaimSite::finished`]), a listing takes it the moment none does, and
+//! never while one does; elsewhere only where its stamp is what the listing
+//! before found (ADR-0024 clause 5, the stability check, which the
+//! amendments of 2026-10-13 and 2026-10-20 keep). Either way it is taken
+//! only if its stamp still is what the listing found once its turn is held;
+//! it is then claimed ([`Claimant::claim`]). What the listing did not take
+//! is remembered for the next one, so the memory is never more than the
+//! far end holds.
 //!
 //! **A file is consumed only on its verdict** ([`Claiming::told`]):
 //! `Accepted` deletes the claimed artifact; `Refused` returns it under its
@@ -158,7 +161,8 @@ impl<S: Clone + Eq + Send + 'static> Claiming<S> {
             // is held: finished, and the artifact that was found. Past
             // `most`, found and left for the next listing.
             let full = taken.len() >= most;
-            if broken.is_some() || full || listed.get(&name) != Some(&stamp) {
+            if broken.is_some() || full || !finished(site, &name, listed.get(&name) == Some(&stamp))
+            {
                 seen.insert(name, stamp);
                 continue;
             }
@@ -305,6 +309,17 @@ impl<S: Clone + Eq + Send + 'static> Claiming<S> {
         if let Ok(Some(stamp)) = site.stamp(&dropped) {
             self.inner.refused.remember(dropped, stamp);
         }
+    }
+}
+
+/// Whether `name` is finished: as the far end says whether a writer holds
+/// it, where it can tell; as the stability check says, `stable`, where it
+/// cannot. A far end that could not be asked leaves it to the next listing.
+fn finished<P: ClaimSite + ?Sized>(site: &P, name: &str, stable: bool) -> bool {
+    match site.finished(name) {
+        Ok(Some(finished)) => finished,
+        Ok(None) => stable,
+        Err(_) => false,
     }
 }
 

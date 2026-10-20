@@ -171,7 +171,7 @@ pub use protocol::Transport;
 pub use refused::Refused;
 pub use sending::Sending;
 pub use taken::Taken;
-pub use waiting::Waiting;
+pub use waiting::{Notice, Waiting};
 
 /// What one TCP segment carries over Ethernet: its 1500-byte MTU less the
 /// IP and TCP headers' 40. TCP over IP is the major transport, so the

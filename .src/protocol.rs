@@ -7,7 +7,7 @@ use crate::direction::Directions;
 use crate::error::Result;
 use crate::outgoing::Outgoing;
 use crate::sending::Sending;
-use crate::waiting::Waiting;
+use crate::waiting::{Notice, Waiting};
 
 /// What every protocol implements.
 ///
@@ -71,6 +71,14 @@ pub trait Transport {
     /// poll interval before it asks again; a waiting one it asks at once.
     fn waiting(&self) -> Waiting;
 
+    /// Where this technology's far end tells of a change, where it is
+    /// polled and can: the runtime waits for that word between receives,
+    /// rather than its poll interval (`crate::waiting`). `None` where
+    /// nothing tells.
+    fn notice(&self) -> Option<Notice> {
+        None
+    }
+
     /// Whether this technology sends a body as it reads it, or gathers it
     /// whole first because its protocol needs it — and why. No default:
     /// every technology says. The runtime's byte budget for sends counts
@@ -106,6 +114,17 @@ pub trait Transport {
     /// As [`Transport::send_from`].
     fn send(&self, target: &str, bytes: &[u8]) -> Result<()> {
         self.send_from(target, Outgoing::held(bytes))
+    }
+
+    /// Why this technology's send keeps what its far end sees back until
+    /// [`Outgoing::kept`] returns — a file written beside its target and
+    /// renamed into place only then — or `None`, where the far end sees a
+    /// send as it is made. The runtime hands a technology that holds back a
+    /// Message whose Publication is still being synced to the Ledger, so
+    /// the send's own work and the sync overlap; every other it hands the
+    /// Message only once it is durable (ADR-0018, amendment 2026-10-20).
+    fn holds_back(&self) -> Option<&'static str> {
+        None
     }
 
     /// How this protocol claims a discrete artifact, where it can. ADR-0024.
