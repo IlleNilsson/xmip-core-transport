@@ -191,7 +191,7 @@ mod tests {
     }
 
     #[test]
-    fn the_judgement_is_visible_in_the_message() {
+    fn the_judgment_is_visible_in_the_message() {
         // An operator reads this in a log without the struct around it.
         assert_eq!(
             TransportError::retryable("the peer hung up").to_string(),

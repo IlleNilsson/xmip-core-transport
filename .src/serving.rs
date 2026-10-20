@@ -143,7 +143,7 @@ impl<C: Open> Serving<C> {
             match exchange(&mut open[at]) {
                 Ok(Turn::Taken(taken)) => {
                     // The one served goes to the back: the next wait
-                    // favours the others, and the one let go when too
+                    // favors the others, and the one let go when too
                     // many are kept is the one quiet longest.
                     let served = open.remove(at);
                     open.push(served);

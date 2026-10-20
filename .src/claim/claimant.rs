@@ -73,7 +73,7 @@ impl Claimant {
     }
 
     /// Claim `dropped` at `site` where `still` says, holding its turn, that
-    /// it is the artefact that was found: renamed to its claimed name, which
+    /// it is the artifact that was found: renamed to its claimed name, which
     /// is handed back. `None` where it is not to be had now — its turn is
     /// another's, another claimant renamed it first, or the far end refused
     /// — so it is left to the next listing.
@@ -104,7 +104,7 @@ impl Claimant {
         Ok(renamed.then_some(claimed))
     }
 
-    /// Every artefact this claimant left claimed at `site`, to be returned
+    /// Every artifact this claimant left claimed at `site`, to be returned
     /// under the name it was dropped with; every turn it left, and every
     /// sent file its sends left unfinished, removed
     /// ([`Claimant::remove_unfinished`]): what a node does as it starts,
@@ -132,13 +132,13 @@ impl Claimant {
 /// A claimed name, read back.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Claim<'a> {
-    /// The name the artefact was dropped with.
+    /// The name the artifact was dropped with.
     pub dropped: &'a str,
     /// Who claimed it.
     pub claimant: &'a str,
 }
 
-/// The turn of the artefact dropped as `dropped`.
+/// The turn of the artifact dropped as `dropped`.
 #[must_use]
 pub fn turn_of(dropped: &str) -> String {
     format!("{dropped}{TURN}")
@@ -159,13 +159,13 @@ pub fn claim_of(name: &str) -> Option<Claim<'_>> {
     })
 }
 
-/// Whether `name` is an artefact's turn.
+/// Whether `name` is an artifact's turn.
 #[must_use]
 pub fn is_turn(name: &str) -> bool {
     name.len() > TURN.len() && name.ends_with(TURN)
 }
 
-/// Whether `name` records a claim or is an artefact's turn: such a name is
+/// Whether `name` records a claim or is an artifact's turn: such a name is
 /// never an arrival.
 #[must_use]
 pub fn is_claimed(name: &str) -> bool {

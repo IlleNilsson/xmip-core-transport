@@ -2,7 +2,7 @@
 //! it takes, what it hands back, and what waits to go back.
 //!
 //! **A file is taken once it is finished, and by one claimant.** A listing
-//! takes an artefact only where its stamp is what the listing before found
+//! takes an artifact only where its stamp is what the listing before found
 //! (ADR-0024 clause 5, the stability check, which the amendment of
 //! 2026-10-13 keeps), and still is once its turn is held; it is then
 //! claimed ([`Claimant::claim`]). What the listing did not take is
@@ -10,12 +10,12 @@
 //! end holds.
 //!
 //! **A file is consumed only on its verdict** ([`Claiming::told`]):
-//! `Accepted` deletes the claimed artefact; `Refused` returns it under its
+//! `Accepted` deletes the claimed artifact; `Refused` returns it under its
 //! dropped name and remembers it as refused (`transport::Refused`), so it is
 //! not received again while it lies so; `Failed`, or no verdict at all,
 //! returns it, and a later listing finds it again.
 //!
-//! **A return never waits for a restart, and never replaces.** An artefact
+//! **A return never waits for a restart, and never replaces.** An artifact
 //! is never returned over one dropped under its name since; it is then
 //! held under its claimed name with why ([`Claiming::held`]) and goes back
 //! as soon as the name is free — after this Location consumes the newer
@@ -33,7 +33,7 @@ use crate::refused::Refused;
 use super::claimant::{Claimant, claim_of, may_arrive};
 use super::site::{ClaimSite, Restore};
 
-/// An artefact a listing claimed: the name it was dropped with, and the
+/// An artifact a listing claimed: the name it was dropped with, and the
 /// name it lies under while claimed.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Taken {
@@ -41,7 +41,7 @@ pub struct Taken {
     pub claimed: String,
 }
 
-/// A claimed artefact that could not go back under its dropped name yet.
+/// A claimed artifact that could not go back under its dropped name yet.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Held {
     /// Where it lies: its claimed name.
@@ -119,12 +119,12 @@ impl<S: Clone + Eq + Send + 'static> Claiming<S> {
         &self.inner.refused
     }
 
-    /// At most `most` of the artefacts at `site` that are finished, not
+    /// At most `most` of the artifacts at `site` that are finished, not
     /// refused as they lie, and won: each claimed. **The rest stay
     /// unclaimed at the far end**, remembered as found, so the next listing
     /// takes them as it takes any finished one — a directory of thousands
     /// is claimed as the runtime has room, never all at once. A held
-    /// artefact whose name was freed goes back first, and is listed with
+    /// artifact whose name was freed goes back first, and is listed with
     /// the rest.
     ///
     /// # Errors
@@ -155,7 +155,7 @@ impl<S: Clone + Eq + Send + 'static> Claiming<S> {
         let mut broken = None;
         for (name, stamp) in found {
             // Unchanged since the last listing, and still so once its turn
-            // is held: finished, and the artefact that was found. Past
+            // is held: finished, and the artifact that was found. Past
             // `most`, found and left for the next listing.
             let full = taken.len() >= most;
             if broken.is_some() || full || listed.get(&name) != Some(&stamp) {
@@ -184,12 +184,12 @@ impl<S: Clone + Eq + Send + 'static> Claiming<S> {
         }
     }
 
-    /// The verdict on the artefact claimed as `claimed`, `None` where it was
+    /// The verdict on the artifact claimed as `claimed`, `None` where it was
     /// let go without one: deleted on `Accepted` where `consume` says,
     /// otherwise returned — and remembered as refused on `Refused`.
     ///
     /// # Errors
-    /// Where the far end refused the delete, or the artefact could not go
+    /// Where the far end refused the delete, or the artifact could not go
     /// back now: why, and that it is held. Retryable then, since it goes
     /// back without anyone asking again.
     pub fn told<P: ClaimSite<Stamp = S> + ?Sized>(
@@ -211,7 +211,7 @@ impl<S: Clone + Eq + Send + 'static> Claiming<S> {
         }
     }
 
-    /// The artefact claimed as `claimed` back under its dropped name,
+    /// The artifact claimed as `claimed` back under its dropped name,
     /// remembered as refused where `refused` says. Where it cannot go back
     /// now, it is held with why and tried again as soon as its name may be
     /// free.
@@ -250,7 +250,7 @@ impl<S: Clone + Eq + Send + 'static> Claiming<S> {
         Err(TransportError::retryable(why))
     }
 
-    /// Every held artefact whose dropped name is free returned under it,
+    /// Every held artifact whose dropped name is free returned under it,
     /// each refused one remembered; every one gone from under its claimed
     /// name forgotten. Nothing held costs one lock.
     pub fn settle<P: ClaimSite<Stamp = S> + ?Sized>(&self, site: &P) {
@@ -287,7 +287,7 @@ impl<S: Clone + Eq + Send + 'static> Claiming<S> {
 
     /// Every claim this claimant's name still holds at `site` returned, and
     /// every turn it left removed: the node is starting, so whatever it held
-    /// before, nothing holds now. One whose dropped name a newer artefact
+    /// before, nothing holds now. One whose dropped name a newer artifact
     /// has taken is held until the name is free.
     ///
     /// # Errors
@@ -308,7 +308,7 @@ impl<S: Clone + Eq + Send + 'static> Claiming<S> {
     }
 }
 
-/// Why the claimed artefact `claimed` is held: `why`, and what becomes of
+/// Why the claimed artifact `claimed` is held: `why`, and what becomes of
 /// it.
 fn held_because(why: &str, claimed: &str) -> String {
     format!("{why}; held as {claimed} and returned once its name is free")
