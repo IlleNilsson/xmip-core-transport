@@ -1,5 +1,5 @@
 //! What every SQL transport shares: where a send target puts its row; the
-//! one fixed table a session answers SELECTs from; and what the payload
+//! one fixed table a session answers `SELECT` from; and what the payload
 //! column holds, as a Location declares it. What a receive does with the
 //! rows its query read — each an arrival, consumed by the Location's
 //! `accept` statement after its cycle — is [`accept`].

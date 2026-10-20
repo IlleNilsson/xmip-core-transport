@@ -1,4 +1,4 @@
-//! One holder of a collidable artefact at a time — claimed at the endpoint.
+//! One holder of a collidable artifact at a time — claimed at the endpoint.
 //!
 //! ADR-0024. This replaces exclusiveness, which held a lease inside Xmip and
 //! could never say where a cluster-wide one would live.
@@ -15,8 +15,8 @@
 //!                 the recovery of what a starting node's name still holds
 //!   claiming.rs   one Location's claims: the stability check, the verdict,
 //!                 and what waits to go back
-//!   hold.rs       a claimed artefact's acknowledgement, returned if let go
-//!   sited.rs      the endpoint's claim of one artefact, for any technology
+//!   hold.rs       a claimed artifact's acknowledgement, returned if let go
+//!   sited.rs      the endpoint's claim of one artifact, for any technology
 //!                 of the family
 //!   unfinished.rs the name a sent file is written under beside its target,
 //!                 carrying the node, and its removal as that node starts
@@ -52,12 +52,12 @@ pub use unfinished::{SENDING, Unfinished, is_unfinished, sender_of};
 /// **Not `xcore::ArtifactId`**, and the near-collision is worth the
 /// sentence: an Xmip Artifact is a *configured object* — a Receive Location, a
 /// Send Port — and this is a thing sitting at the far end of one. ADR-0017
-/// spelled it `ArtefactId`, one letter from the other, which is how the two
+/// spelled it `ArtifactId`, one letter from the other, which is how the two
 /// would have been confused in a signature at some point.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct Artefact(String);
+pub struct Artifact(String);
 
-impl Artefact {
+impl Artifact {
     #[must_use]
     pub fn new(address: impl Into<String>) -> Self {
         Self(address.into())
@@ -69,7 +69,7 @@ impl Artefact {
     }
 }
 
-impl fmt::Display for Artefact {
+impl fmt::Display for Artifact {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.0)
     }
@@ -82,15 +82,15 @@ impl fmt::Display for Artefact {
 /// obtained it knows what it means.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Claimed {
-    pub artefact: Artefact,
+    pub artifact: Artifact,
     pub token: String,
 }
 
 impl Claimed {
     #[must_use]
-    pub fn new(artefact: Artefact, token: impl Into<String>) -> Self {
+    pub fn new(artifact: Artifact, token: impl Into<String>) -> Self {
         Self {
-            artefact,
+            artifact,
             token: token.into(),
         }
     }
@@ -114,12 +114,12 @@ impl Claimed {
 /// | SQL | `SELECT … FOR UPDATE SKIP LOCKED` |
 ///
 /// It also answers what a lease could not: whether something **outside Xmip**
-/// holds the artefact. A file another process has open includes a producer
+/// holds the artifact. A file another process has open includes a producer
 /// still writing it; where the claim cannot see a writer, as a rename
 /// cannot, the transport takes only what its stability check says is
 /// finished (ADR-0024 clause 5 and its amendment of 2026-09-26).
 ///
-/// ADR-0024 clause 4: **the artefact, not the location.** Two nodes may poll one
+/// ADR-0024 clause 4: **the artifact, not the location.** Two nodes may poll one
 /// directory at the same time and take different files.
 pub trait ResourceClaim: Send + Sync {
     /// Whether anything is using it, inside Xmip or outside.
@@ -127,14 +127,14 @@ pub trait ResourceClaim: Send + Sync {
     /// # Errors
     ///
     /// Where the endpoint could not be asked. Unreachable is not available.
-    fn is_available(&self, artefact: &Artefact) -> Result<bool>;
+    fn is_available(&self, artifact: &Artifact) -> Result<bool>;
 
     /// Take it. Atomic, or it is not a claim.
     ///
     /// # Errors
     ///
     /// Where somebody else holds it, or the endpoint could not be reached.
-    fn claim(&self, artefact: &Artefact) -> Result<Claimed>;
+    fn claim(&self, artifact: &Artifact) -> Result<Claimed>;
 
     /// # Errors
     ///
@@ -143,7 +143,7 @@ pub trait ResourceClaim: Send + Sync {
     fn release(&self, claimed: Claimed) -> Result<()>;
 }
 
-/// A protocol with artefacts whose claim is not built yet. ADR-0024 clause 5.
+/// A protocol with artifacts whose claim is not built yet. ADR-0024 clause 5.
 ///
 /// IMAP, which offers no exclusive step at all, and the object stores,
 /// databases and shares whose own exclusive step is still to be taken
@@ -157,12 +157,12 @@ pub trait ResourceClaim: Send + Sync {
 pub struct NoNativeClaim;
 
 impl ResourceClaim for NoNativeClaim {
-    fn is_available(&self, _artefact: &Artefact) -> Result<bool> {
+    fn is_available(&self, _artifact: &Artifact) -> Result<bool> {
         Ok(true)
     }
 
-    fn claim(&self, artefact: &Artefact) -> Result<Claimed> {
-        Ok(Claimed::new(artefact.clone(), String::new()))
+    fn claim(&self, artifact: &Artifact) -> Result<Claimed> {
+        Ok(Claimed::new(artifact.clone(), String::new()))
     }
 
     fn release(&self, _claimed: Claimed) -> Result<()> {
@@ -193,7 +193,7 @@ mod tests {
     }
 
     #[test]
-    fn two_claimants_racing_take_every_artefact_exactly_once() {
+    fn two_claimants_racing_take_every_artifact_exactly_once() {
         const FILES: usize = 400;
         let site = Memory::default();
         for file in 0..FILES {
@@ -226,12 +226,12 @@ mod tests {
         });
         let all: Vec<&Vec<u8>> = took.iter().flatten().collect();
         let once: std::collections::BTreeSet<&Vec<u8>> = all.iter().copied().collect();
-        assert_eq!(all.len(), FILES, "every artefact taken, none twice");
+        assert_eq!(all.len(), FILES, "every artifact taken, none twice");
         assert_eq!(once.len(), FILES);
     }
 
     #[test]
-    fn a_turn_taken_leaves_the_artefact_and_a_refused_rename_drops_the_turn() {
+    fn a_turn_taken_leaves_the_artifact_and_a_refused_rename_drops_the_turn() {
         let site = Memory::default();
         site.drop_file("order.edi", b"ISA");
         let claims = claiming(0);
@@ -278,7 +278,7 @@ mod tests {
     }
 
     #[test]
-    fn a_changed_artefact_waits_for_a_listing_that_finds_it_unchanged() {
+    fn a_changed_artifact_waits_for_a_listing_that_finds_it_unchanged() {
         let site = Memory::default();
         let claims = claiming(0);
         site.drop_file("order.edi", b"ISA");
@@ -369,20 +369,20 @@ mod tests {
     }
 
     #[test]
-    fn one_artefact_is_claimed_by_its_address_and_released_back() {
+    fn one_artifact_is_claimed_by_its_address_and_released_back() {
         let located = Located(Memory::default(), claiming(0));
         located.0.drop_file("order.edi", b"ISA");
-        let artefact = Artefact::new("sftp://party.example/out/order.edi");
-        assert!(located.is_available(&artefact).expect("asked"));
-        let claimed = located.claim(&artefact).expect("claimed");
+        let artifact = Artifact::new("sftp://party.example/out/order.edi");
+        assert!(located.is_available(&artifact).expect("asked"));
+        let claimed = located.claim(&artifact).expect("claimed");
         assert!(
             claimed.token.starts_with("order.edi.xmip-claim."),
             "{claimed:?}"
         );
-        assert!(!located.is_available(&artefact).expect("asked"), "held");
-        assert!(located.claim(&artefact).is_err_and(|held| held.retryable));
+        assert!(!located.is_available(&artifact).expect("asked"), "held");
+        assert!(located.claim(&artifact).is_err_and(|held| held.retryable));
         located.release(claimed).expect("released");
-        assert!(located.is_available(&artefact).expect("asked again"));
+        assert!(located.is_available(&artifact).expect("asked again"));
     }
 
     #[test]
@@ -401,23 +401,23 @@ mod tests {
     }
 
     #[test]
-    fn an_artefact_is_addressed_in_its_own_protocols_terms() {
-        let artefact = Artefact::new("s3://bucket/in/order-1.edi");
+    fn an_artifact_is_addressed_in_its_own_protocols_terms() {
+        let artifact = Artifact::new("s3://bucket/in/order-1.edi");
 
-        assert_eq!(artefact.address(), "s3://bucket/in/order-1.edi");
-        assert_eq!(artefact.to_string(), "s3://bucket/in/order-1.edi");
+        assert_eq!(artifact.address(), "s3://bucket/in/order-1.edi");
+        assert_eq!(artifact.to_string(), "s3://bucket/in/order-1.edi");
     }
 
     #[test]
-    fn a_protocol_with_artefacts_and_no_locking_says_so() {
+    fn a_protocol_with_artifacts_and_no_locking_says_so() {
         let imap = NoNativeClaim;
-        let artefact = Artefact::new("imap://party.example/INBOX;UID=1");
+        let artifact = Artifact::new("imap://party.example/INBOX;UID=1");
 
-        assert!(imap.is_available(&artefact).expect("asked"));
+        assert!(imap.is_available(&artifact).expect("asked"));
 
-        let claimed = imap.claim(&artefact).expect("claimed");
+        let claimed = imap.claim(&artifact).expect("claimed");
 
-        assert_eq!(claimed.artefact, artefact);
+        assert_eq!(claimed.artifact, artifact);
         assert!(
             claimed.token.is_empty(),
             "the endpoint granted nothing, so there is no token to carry"

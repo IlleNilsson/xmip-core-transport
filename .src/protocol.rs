@@ -108,12 +108,12 @@ pub trait Transport {
         self.send_from(target, Outgoing::held(bytes))
     }
 
-    /// How this protocol claims a discrete artefact, where it can. ADR-0024.
+    /// How this protocol claims a discrete artifact, where it can. ADR-0024.
     ///
     /// Three answers, and they are different:
     ///
-    /// - `None` — no artefact to claim. A listening socket, a broker topic.
-    /// - `Some(&NoNativeClaim)` — artefacts, and no claim built yet. IMAP.
+    /// - `None` — no artifact to claim. A listening socket, a broker topic.
+    /// - `Some(&NoNativeClaim)` — artifacts, and no claim built yet. IMAP.
     /// - `Some(&…)` — the protocol's own atomic claim; the file family's
     ///   turn and rename (`claim::Sited`): file, FTP, FTPS, SFTP.
     fn claims(&self) -> Option<&dyn ResourceClaim> {

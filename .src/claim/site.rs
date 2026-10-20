@@ -22,7 +22,7 @@ use crate::error::Result;
 /// A name the listing found, with its stamp where the far end gives one.
 pub type Listed<S> = (String, Option<S>);
 
-/// What became of a claimed artefact asked to go back under its dropped
+/// What became of a claimed artifact asked to go back under its dropped
 /// name.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Restore {
@@ -37,11 +37,11 @@ pub enum Restore {
 
 /// One location of the file family, as a claim needs it.
 pub trait ClaimSite {
-    /// What says an artefact is unchanged: a length and a modification
+    /// What says an artifact is unchanged: a length and a modification
     /// time, as the far end gives them.
     type Stamp: Clone + Eq + Send + 'static;
 
-    /// Every artefact lying at the location, each with its stamp: files,
+    /// Every artifact lying at the location, each with its stamp: files,
     /// never directories. Turns, claimed names and sent files not yet in
     /// place are left out by the caller ([`super::may_arrive`]), and a
     /// starting node finds among them what it left
@@ -93,7 +93,7 @@ pub trait ClaimSite {
     /// Where the far end could not be asked.
     fn rename(&self, from: &str, to: &str) -> Result<bool>;
 
-    /// `claimed` back under `dropped`, never over an artefact dropped there
+    /// `claimed` back under `dropped`, never over an artifact dropped there
     /// since.
     ///
     /// # Errors

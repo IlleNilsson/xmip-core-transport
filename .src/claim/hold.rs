@@ -1,4 +1,4 @@
-//! A claimed artefact held through its receive cycle: told its verdict
+//! A claimed artifact held through its receive cycle: told its verdict
 //! once, and returned where it was dropped if it never is.
 
 use crate::acknowledgement::{Acknowledgement, Verdict};
@@ -8,7 +8,7 @@ use super::claiming::Claiming;
 use super::site::ClaimSite;
 
 impl<S: Clone + Eq + Send + 'static> Claiming<S> {
-    /// The acknowledgement of the artefact claimed as `claimed` at `site`:
+    /// The acknowledgement of the artifact claimed as `claimed` at `site`:
     /// the verdict told as [`Claiming::told`] tells it, deleting on
     /// `Accepted` where `consume` says; let go without one, it is returned.
     #[must_use]
@@ -44,7 +44,7 @@ impl<S: Clone + Eq + Send + 'static, P: ClaimSite<Stamp = S>> Hold<S, P> {
 }
 
 impl<S: Clone + Eq + Send + 'static, P: ClaimSite<Stamp = S>> Drop for Hold<S, P> {
-    /// Let go without a verdict: nothing was consumed, so the artefact goes
+    /// Let go without a verdict: nothing was consumed, so the artifact goes
     /// back where it was dropped.
     fn drop(&mut self) {
         if !self.told {

@@ -45,7 +45,7 @@
 //!   answer.rs           the answer a peer waits for after the cycle: on its connection,
 //!                       busy until given and shut when let go, or as a datagram
 //!   error.rs            failure, and whether saying it again would help
-//!   claim.rs            one holder of a collidable artefact at a time; the file
+//!   claim.rs            one holder of a collidable artifact at a time; the file
 //!                       family's turn and rename, written once (claim/)
 //!   configured.rs       the settings a technology declares, and the one way a
 //!                       Location's address and settings build it (ADR-0064)
@@ -154,7 +154,7 @@ pub use acknowledgement::{Acknowledgement, Refusal, Verdict};
 pub use arrival_identity::ArrivalIdentity;
 pub use arrivals::Arrivals;
 pub use arrived::Arrived;
-pub use claim::{Artefact, Claimed, NoNativeClaim, ResourceClaim};
+pub use claim::{Artifact, Claimed, NoNativeClaim, ResourceClaim};
 pub use configured::Configured;
 pub use direction::Directions;
 pub use error::{Result, TransportError};
