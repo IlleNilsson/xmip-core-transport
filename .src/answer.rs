@@ -17,15 +17,24 @@
 use std::fmt;
 use std::io::Write;
 use std::net::{Shutdown, TcpStream, ToSocketAddrs, UdpSocket};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, OnceLock};
 
 use crate::error::{Result, classify};
+use crate::serving::Freed;
 
 /// Whether a connection waits on this side: a request taken from it whose
-/// [`Answer`] is not given yet. Shared by the connection and its answer.
+/// [`Answer`] is not given yet. Shared by the connection and its answer,
+/// and freeing it tells the wait that left the connection out meanwhile
+/// ([`Freed`]).
 #[derive(Clone, Debug, Default)]
-pub struct Busy(Arc<AtomicBool>);
+pub struct Busy(Arc<Owed>);
+
+#[derive(Debug, Default)]
+struct Owed {
+    busy: AtomicBool,
+    freed: OnceLock<Freed>,
+}
 
 impl Busy {
     /// Not busy.
@@ -37,11 +46,20 @@ impl Busy {
     /// Whether an answer is owed on the connection now.
     #[must_use]
     pub fn is_busy(&self) -> bool {
-        self.0.load(Ordering::Acquire)
+        self.0.busy.load(Ordering::Acquire)
+    }
+
+    /// Tell `freed` whenever an answer frees the connection: the first
+    /// told is kept, the wait for every peer of one Receive Location.
+    pub fn telling(&self, freed: &Freed) {
+        drop(self.0.freed.set(freed.clone()));
     }
 
     fn set(&self, busy: bool) {
-        self.0.store(busy, Ordering::Release);
+        self.0.busy.store(busy, Ordering::Release);
+        if !busy && let Some(freed) = self.0.freed.get() {
+            freed.tell();
+        }
     }
 }
 

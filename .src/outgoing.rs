@@ -3,7 +3,9 @@
 //! a time; the delivery's deduplication key; and the Message's context,
 //! which a technology that names what it writes reads the name from — a
 //! file Send Location the name the file was received under
-//! (`context::property::FILE_NAME`; ADR-0024, amendment 2026-10-20).
+//! (`context::property::FILE_NAME`; ADR-0024, amendment 2026-10-20) — and
+//! the Message's identifier, which it names one by where the context names
+//! none (amendment 2026-10-21).
 //!
 //! The runtime hands a transport the Message as the Ledger keeps it, a
 //! chunk at a time (`runtime-model.md` section 10), never read whole before
@@ -45,6 +47,8 @@ pub struct Outgoing<'a> {
     still: Option<&'a dyn Fn() -> bool>,
     /// The Message's context, where the sender is the runtime.
     context: Option<&'a MessageContext>,
+    /// The Message's identifier, where the sender is the runtime.
+    message: Option<&'a str>,
     /// Waited on before the far end may see the Message: until it is
     /// durable where its sender keeps it.
     kept: Option<&'a dyn Fn() -> Result<()>>,
@@ -65,6 +69,7 @@ impl<'a> Outgoing<'a> {
             key: None,
             still: None,
             context: None,
+            message: None,
             kept: None,
         }
     }
@@ -78,6 +83,7 @@ impl<'a> Outgoing<'a> {
             key: None,
             still: None,
             context: None,
+            message: None,
             kept: None,
         }
     }
@@ -96,6 +102,23 @@ impl<'a> Outgoing<'a> {
     #[must_use]
     pub const fn context(&self) -> Option<&'a MessageContext> {
         self.context
+    }
+
+    /// The Message `message`, by its identifier: what the runtime hands
+    /// every send, so a technology that names what it writes names it by
+    /// the Message where nothing in its context does — a file Send
+    /// Location's `name` pattern, and the identifier itself where it has
+    /// none (ADR-0024, amendment 2026-10-21).
+    #[must_use]
+    pub const fn of_message(mut self, message: &'a str) -> Self {
+        self.message = Some(message);
+        self
+    }
+
+    /// The Message's identifier, where the sender handed one.
+    #[must_use]
+    pub const fn message(&self) -> Option<&'a str> {
+        self.message
     }
 
     /// Delivered under `key`: the delivery's deduplication key, the
