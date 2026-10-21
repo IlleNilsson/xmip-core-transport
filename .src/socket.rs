@@ -57,8 +57,9 @@ pub fn accept_tcp(
     Ok((stream, peer))
 }
 
-/// A listener whose accept [`accept_within`] can bound: a TCP listener, a
-/// Unix domain socket's, a Windows named pipe's.
+/// A listener whose accept [`accept_within`] can bound: a TCP listener or a
+/// Unix domain socket's. A named pipe bounds its own, waiting on the
+/// system's event for its client (`net::pipe`, 2026-10-21).
 pub trait Acceptor {
     /// What one accept hands back.
     type Accepted;
