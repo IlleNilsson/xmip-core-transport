@@ -12,10 +12,15 @@
 //! | operation | file system | FTP, FTPS | SFTP |
 //! | --- | --- | --- | --- |
 //! | list | read the directory | `MLSD`, or `NLST` with `SIZE` and `MDTM` | `READDIR` |
-//! | take a turn | create a new file | `MKD` | `OPEN` with `CREAT` and `EXCL` |
+//! | take a turn | create a new file (see below) | `MKD` | `OPEN` with `CREAT` and `EXCL` |
 //! | rename | rename | `RNFR`, `RNTO` | `RENAME` |
 //! | restore | hard link, then remove | `RNFR`, `RNTO` where the name is free | `RENAME` |
 //! | delete | remove | `DELE` | `REMOVE` |
+//!
+//! On Windows a drop directory's turn is the dropped file itself, opened to
+//! write and sharing no writer: one open where a new file took four changes
+//! to the directory (ADR-0024, amendment 2026-10-21). Nothing is written
+//! through it, the rename goes through it, and it ends with its handle.
 
 use crate::error::Result;
 
