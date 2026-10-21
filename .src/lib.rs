@@ -71,6 +71,8 @@
 //! shared machinery      what two technologies both need lives here (ADR-0044)
 //!   socket.rs           binding, accepting (waiting on readiness), connecting and
 //!                       splitting sockets; multicast
+//!   ended.rs            a connection read to its sender's close, let go with a reset
+//!                       so that neither end waits to close
 //!   sender.rs           the datagram socket a UDP technology sends from, bound once
 //!                       per address family and kept
 //!   pool.rs             the sessions a transport keeps between sends and receives,
@@ -117,6 +119,7 @@ pub mod concurrent;
 pub mod configured;
 pub mod contiguous;
 pub mod direction;
+pub mod ended;
 pub mod error;
 #[cfg(feature = "tls")]
 pub mod guard;
