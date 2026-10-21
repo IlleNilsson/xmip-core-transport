@@ -23,8 +23,10 @@
 //! answer `RNFR` to both. So the rename is made holding the file's turn,
 //! `order.edi.xmip-claim`, created only where nothing of that name exists —
 //! the one exclusive step every far end of the family offers — recording
-//! its holder, and removed once the rename is done. A claimant that finds
-//! the turn taken leaves the file to the next listing.
+//! its holder, and removed once the rename is done — on Windows a drop
+//! directory's turn is the dropped file held open, sharing no writer
+//! (`site.rs`). A claimant that finds the turn taken leaves the file to the
+//! next listing.
 //!
 //! A name carrying the mark, a turn's name, or a sent file's not yet in
 //! place (`unfinished.rs`), is never an arrival ([`may_arrive`]).
