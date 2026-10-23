@@ -29,6 +29,7 @@
 //!                       looks and returns at once, and why
 //!   outgoing.rs         what a send delivers: a body of a known length, read from its
 //!                       start a piece at a time as often as asked, and its key
+//!   file_name.rs        the name a send of the file family writes a Message's file under
 //!   sending.rs          whether a technology sends a body as it reads it or gathers
 //!                       it whole first, and why
 //!   acknowledgement.rs  what the far end is told once the receive cycle ended: the
@@ -118,6 +119,7 @@ pub mod configured;
 pub mod contiguous;
 pub mod direction;
 pub mod error;
+pub mod file_name;
 #[cfg(feature = "tls")]
 pub mod guard;
 pub mod headers;
