@@ -1,7 +1,10 @@
 //! One holder of a collidable artifact at a time — claimed at the endpoint.
 //!
-//! ADR-0024. This replaces exclusiveness, which held a lease inside Xmip and
-//! could never say where a cluster-wide one would live.
+//! ADR-0024. This replaced ADR-0017's exclusiveness lease, which lived
+//! inside Xmip and could never say where a cluster-wide one would live.
+//! Exclusiveness itself is Xmip's correlation sets (the owner, 2026-10-27;
+//! ADR-0024 and ADR-0066, amendments 2026-10-27): this claim is its part at
+//! the endpoint, one holder of an artifact at a time.
 //!
 //! The file family's claim — a turn, then a rename to a name recording the
 //! claimant, the return, the recovery of a starting node — is written once
