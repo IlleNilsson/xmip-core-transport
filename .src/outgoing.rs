@@ -42,6 +42,8 @@ pub struct Outgoing<'a> {
     length: u64,
     body: Body<'a>,
     key: Option<&'a str>,
+    /// Its claim's fence ([`Outgoing::fenced`]).
+    fence: u64,
     /// Asked before the first byte goes: whether the send is still the
     /// sender's to make.
     still: Option<&'a dyn Fn() -> bool>,
@@ -67,6 +69,7 @@ impl<'a> Outgoing<'a> {
             length,
             body: Body::Opened(Box::new(open)),
             key: None,
+            fence: 0,
             still: None,
             context: None,
             message: None,
@@ -81,6 +84,7 @@ impl<'a> Outgoing<'a> {
             length: bytes.len() as u64,
             body: Body::Held(bytes),
             key: None,
+            fence: 0,
             still: None,
             context: None,
             message: None,
@@ -129,6 +133,20 @@ impl<'a> Outgoing<'a> {
     pub const fn keyed(mut self, key: &'a str) -> Self {
         self.key = Some(key);
         self
+    }
+
+    /// Under `fence`, its claim's fencing token, growing with every holder:
+    /// a far end keeping the largest refuses a stale holder's send.
+    #[must_use]
+    pub const fn fenced(mut self, fence: u64) -> Self {
+        self.fence = fence;
+        self
+    }
+
+    /// The fence it is delivered under, zero where none.
+    #[must_use]
+    pub const fn fence(&self) -> u64 {
+        self.fence
     }
 
     /// Sent only while `still` says so when its first byte would go: once
