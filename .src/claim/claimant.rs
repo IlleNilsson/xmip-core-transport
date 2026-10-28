@@ -8,7 +8,7 @@
 //!
 //! **The claimed name** is the dropped name, the mark `.xmip-claim.`, the
 //! node's location percent-encoded so that a file name carries it on every
-//! far end (`net::percent`), and the time of the claim in nanoseconds since
+//! far end (`codec::percent`), and the time of the claim in nanoseconds since
 //! the Unix epoch:
 //!
 //! ```text
@@ -55,7 +55,7 @@ impl Claimant {
     /// one way and names no directory.
     #[must_use]
     pub fn of(node: &NodeLocation) -> Self {
-        Self(net::percent::encode_keeping(node.as_str(), |byte| {
+        Self(codec::percent::encode_keeping(node.as_str(), |byte| {
             byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_')
         }))
     }
