@@ -26,8 +26,25 @@ pub trait Configured: Transport + Sized {
     /// `env!("CARGO_PKG_NAME")`.
     const SETTINGS: &'static Settings;
 
-    /// This technology at `address`, in its own terms, with the settings its
-    /// declaration read.
+    /// The address schemes this technology answers, lowercase, at least one
+    /// — `ftp` and `ftps`, `http` and `https`: the one place a Location's
+    /// address is told to belong to it, the scheme it is entered with
+    /// choosing the technology (ADR-0010 and ADR-0064, amendments
+    /// 2026-10-28). No two technologies a node carries declare one alike.
+    const SCHEMES: &'static [&'static str];
+
+    /// `address`, as a Location enters it, in this technology's own terms:
+    /// what follows `scheme://` by default, the address unchanged where it
+    /// names no scheme. A technology that reads the scheme itself — the
+    /// TLS `ftps` or `https` asks for, the user an `sftp://user@host`
+    /// logs in as — keeps the whole address.
+    #[must_use]
+    fn own_terms(address: &str) -> &str {
+        net::Target::under(Self::SCHEMES, address).map_or(address, |target| target.after_scheme())
+    }
+
+    /// This technology at `address`, in its own terms ([`Configured::own_terms`]),
+    /// with the settings its declaration read.
     ///
     /// # Errors
     /// When the address or a setting is one the technology cannot use —
@@ -44,7 +61,7 @@ pub trait Configured: Transport + Sized {
     /// the setting; then whatever [`Configured::configured`] refuses.
     fn open(address: &str, side: Applies, given: &[(String, Given)]) -> Result<Self> {
         let read = Self::SETTINGS.read(side, given)?;
-        Self::configured(address, &read).map(|built| built.sided(side))
+        Self::configured(Self::own_terms(address), &read).map(|built| built.sided(side))
     }
 
     /// This transport on `side`, as [`Configured::open`] builds it. A
@@ -73,6 +90,17 @@ pub trait Configured: Transport + Sized {
         Ok(self)
     }
 
+    /// This transport holding its far ends to the keys `pins` keeps: what
+    /// the runtime calls once, after [`Configured::on_node`], with the
+    /// node's pins (`crate::pinned`). A technology that authenticates its
+    /// far end by a key no anchor vouches for — an SSH server's host key —
+    /// keeps them, pinning each far end's key on first contact (ADR-0019,
+    /// amendment 2026-10-28); any other keeps nothing, as by default.
+    #[must_use]
+    fn pinned_by(self, _pins: &std::sync::Arc<crate::Pinned>) -> Self {
+        self
+    }
+
     /// This transport guarded by `guard`, the TLS the node terminates its
     /// receives with — `None` where the node configured no `receive`
     /// certificate (`crate::guard`): what the runtime calls once, after
@@ -97,6 +125,7 @@ mod tests {
     use xcore::settings::{Fixed, Kind, Presence, Setting};
 
     struct Example {
+        address: String,
         topic: String,
         wait_ms: u128,
     }
@@ -146,8 +175,11 @@ mod tests {
             ],
         };
 
-        fn configured(_address: &str, settings: &Read) -> Result<Self> {
+        const SCHEMES: &'static [&'static str] = &["example"];
+
+        fn configured(address: &str, settings: &Read) -> Result<Self> {
             Ok(Self {
+                address: address.to_string(),
                 topic: settings.text("topic").to_string(),
                 wait_ms: settings
                     .optional_duration("wait")
@@ -165,6 +197,15 @@ mod tests {
 
         let sent = Example::open("host:1", Applies::Send, &given).expect("built");
         assert_eq!(sent.wait_ms, 0, "a Send Location reads no receive setting");
+    }
+
+    #[test]
+    fn the_scheme_an_address_is_entered_with_is_off_it_in_the_technologys_terms() {
+        let given = [("topic".to_string(), Given::Text("orders".to_string()))];
+        let built = Example::open("EXAMPLE://host:1/orders", Applies::Send, &given);
+        assert_eq!(built.expect("built").address, "host:1/orders");
+        let bare = Example::open("host:1", Applies::Send, &given).expect("built");
+        assert_eq!(bare.address, "host:1", "an address with no scheme is kept");
     }
 
     #[test]

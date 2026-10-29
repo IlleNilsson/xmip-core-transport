@@ -75,6 +75,9 @@ impl Configured for KafkaTransport {
         }],
     };
 
+    /// The schemes a Location's address is entered with to choose this technology.
+    const SCHEMES: &'static [&'static str] = &["kafka"];
+
     fn configured(address: &str, settings: &Read) -> Result<Self> {
         Ok(Self::new(address, settings.text("topic")))
     }

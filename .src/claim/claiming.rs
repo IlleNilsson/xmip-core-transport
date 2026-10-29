@@ -189,8 +189,9 @@ impl<S: Clone + Eq + Send + 'static> Claiming<S> {
     }
 
     /// The verdict on the artifact claimed as `claimed`, `None` where it was
-    /// let go without one: deleted on `Accepted` where `consume` says,
-    /// otherwise returned — and remembered as refused on `Refused`.
+    /// let go without one: deleted on `Accepted`, otherwise returned — and
+    /// remembered as refused on `Refused`. The verdict decides, never a
+    /// Location's setting (ADR-0024, amendment 2026-10-28).
     ///
     /// # Errors
     /// Where the far end refused the delete, or the artifact could not go
@@ -201,10 +202,9 @@ impl<S: Clone + Eq + Send + 'static> Claiming<S> {
         site: &P,
         claimed: &str,
         verdict: Option<Verdict>,
-        consume: bool,
     ) -> Result<()> {
         match verdict {
-            Some(Verdict::Accepted) if consume => {
+            Some(Verdict::Accepted) => {
                 site.delete(claimed)?;
                 // Its dropped name is free now: one waiting for it goes back.
                 self.settle(site);

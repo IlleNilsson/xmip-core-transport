@@ -10,9 +10,9 @@ use super::site::ClaimSite;
 impl<S: Clone + Eq + Send + 'static> Claiming<S> {
     /// The acknowledgement of the artifact claimed as `claimed` at `site`:
     /// the verdict told as [`Claiming::told`] tells it, deleting on
-    /// `Accepted` where `consume` says; let go without one, it is returned.
+    /// `Accepted`; let go without one, it is returned.
     #[must_use]
-    pub fn acknowledgement<P>(&self, site: P, claimed: String, consume: bool) -> Acknowledgement
+    pub fn acknowledgement<P>(&self, site: P, claimed: String) -> Acknowledgement
     where
         P: ClaimSite<Stamp = S> + Send + 'static,
     {
@@ -20,7 +20,6 @@ impl<S: Clone + Eq + Send + 'static> Claiming<S> {
             claiming: self.clone(),
             site,
             claimed,
-            consume,
             told: false,
         };
         Acknowledgement::deferred(move |verdict| hold.tell(verdict))
@@ -31,15 +30,13 @@ struct Hold<S: Clone + Eq + Send + 'static, P: ClaimSite<Stamp = S>> {
     claiming: Claiming<S>,
     site: P,
     claimed: String,
-    consume: bool,
     told: bool,
 }
 
 impl<S: Clone + Eq + Send + 'static, P: ClaimSite<Stamp = S>> Hold<S, P> {
     fn tell(mut self, verdict: Verdict) -> Result<()> {
         self.told = true;
-        self.claiming
-            .told(&self.site, &self.claimed, Some(verdict), self.consume)
+        self.claiming.told(&self.site, &self.claimed, Some(verdict))
     }
 }
 
@@ -48,9 +45,7 @@ impl<S: Clone + Eq + Send + 'static, P: ClaimSite<Stamp = S>> Drop for Hold<S, P
     /// back where it was dropped.
     fn drop(&mut self) {
         if !self.told {
-            let _ = self
-                .claiming
-                .told(&self.site, &self.claimed, None, self.consume);
+            let _ = self.claiming.told(&self.site, &self.claimed, None);
         }
     }
 }
