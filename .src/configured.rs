@@ -101,6 +101,25 @@ pub trait Configured: Transport + Sized {
         self
     }
 
+    /// This transport presenting `secured`, the secret its Location names
+    /// (`secret = "<name>"`; ADR-0019, amendment 2026-10-29): what the
+    /// runtime calls once, after [`Configured::on_node`], for a Location
+    /// that names one. A technology that authenticates to the party it
+    /// connects to keeps it and reads it each time it connects
+    /// (`crate::secured`); any other refuses it, as by default, so a
+    /// Location naming a secret its technology cannot present is refused
+    /// as the node starts.
+    ///
+    /// # Errors
+    /// Where the technology presents no secret, or none from this side.
+    fn secured_by(self, secured: crate::Secured) -> Result<Self> {
+        Err(crate::TransportError::permanent(format!(
+            "{} presents no secret, so a Location of it names none; '{}' is named",
+            Self::SETTINGS.technology,
+            secured.name()
+        )))
+    }
+
     /// This transport guarded by `guard`, the TLS the node terminates its
     /// receives with — `None` where the node configured no `receive`
     /// certificate (`crate::guard`): what the runtime calls once, after

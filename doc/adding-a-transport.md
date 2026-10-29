@@ -90,7 +90,10 @@ to at start; `open` reads a Location through it and calls `configured`. So:
 never parse a setting by hand, write a default once — a constant the code
 already holds is `Fixed::Duration(TIMEOUT)` or `Fixed::Integer(…)`, never
 the value again — and declare a setting on the side that reads it. A secret
-is never a setting: the Location's `credentials` names it. A technology that
+is never a setting: the Location's `secret` names it, and a technology that
+presents one implements `Configured::secured_by`, keeping the `Secured` it is
+handed and reading it each time it connects — `transport::secured::logged_in`
+for a user and password (ADR-0019, amendment 2026-10-29). A technology that
 takes nothing beyond its address declares `Settings::none(env!("CARGO_PKG_NAME"))`.
 Its test holds the declaration sound (`SETTINGS.problems()` is empty) and
 builds from a Location through `open`.
