@@ -214,7 +214,7 @@ mod tests {
                             for taken in claims.take(&site, usize::MAX).expect("taken") {
                                 took.push(site.read(&taken.claimed).expect("claimed"));
                                 claims
-                                    .told(&site, &taken.claimed, Some(Verdict::Accepted), true)
+                                    .told(&site, &taken.claimed, Some(Verdict::Accepted))
                                     .expect("accepted");
                             }
                         }
@@ -308,12 +308,12 @@ mod tests {
         let taken = settled(&claims, &site).remove(0);
         site.drop_file("order.edi", b"new");
         let refused = Some(Verdict::Refused(Refusal::Unacceptable));
-        let told = claims.told(&site, &taken.claimed, refused, true);
+        let told = claims.told(&site, &taken.claimed, refused);
         assert!(told.is_err_and(|held| held.retryable), "held");
         assert!(claims.held()[0].why.contains("dropped since"));
         let newer = settled(&claims, &site).remove(0);
         claims
-            .told(&site, &newer.claimed, Some(Verdict::Accepted), true)
+            .told(&site, &newer.claimed, Some(Verdict::Accepted))
             .expect("consumed");
         assert!(claims.held().is_empty(), "its name freed, it went back");
         assert_eq!(site.read("order.edi").expect("returned"), b"old");

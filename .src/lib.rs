@@ -136,6 +136,7 @@ pub mod node;
 pub mod outgoing;
 #[cfg(any(test, feature = "test-support"))]
 pub mod payload;
+pub mod pinned;
 pub mod pool;
 pub mod protocol;
 pub mod refused;
@@ -168,6 +169,7 @@ pub use login::Login;
 pub use loopback::{FarEnd, LOOPBACK_TIMEOUT, Loopback, UNBLOCK_TIMEOUT};
 pub use node::NodeLocation;
 pub use outgoing::Outgoing;
+pub use pinned::Pinned;
 pub use pool::{Pool, Pooled};
 pub use protocol::Transport;
 pub use refused::Refused;
