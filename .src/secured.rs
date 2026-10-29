@@ -58,7 +58,7 @@ impl Secured {
             })?;
         read.ok_or_else(|| {
             TransportError::permanent(format!(
-                "the secret '{}' is not set: set it with Set-XmipSecret, or xmip secret set",
+                "the secret '{}' is not set: set it with Set-XmipSecret, or xmip secret --set",
                 self.name
             ))
         })
