@@ -126,7 +126,7 @@ impl<'a> Outgoing<'a> {
     }
 
     /// Delivered under `key`: the delivery's deduplication key, the
-    /// Journey's identifier, the same on every attempt of one Journey and
+    /// Journey's identifier, the same on every attempt on one Journey and
     /// different for every other (runtime-model section 15, *Delivery
     /// semantics*).
     #[must_use]
@@ -178,7 +178,7 @@ impl<'a> Outgoing<'a> {
     /// # Errors
     ///
     /// Where it could not be kept: the far end must not see it, and the
-    /// send fails retryable, its Journey kept or its sender told to send
+    /// send fails retryable, its Message kept or its sender told to send
     /// again.
     pub fn kept(&self) -> Result<()> {
         self.kept.map_or(Ok(()), |kept| kept())

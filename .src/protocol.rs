@@ -90,7 +90,7 @@ pub trait Transport {
     /// as it is read ([`Outgoing::write_to`]) or gathered whole where the
     /// protocol needs it ([`Outgoing::gather`]), as [`Transport::sending`]
     /// says; and its deduplication key ([`Outgoing::key`]), the Journey's
-    /// identifier, the same on every attempt of one Journey and different
+    /// identifier, the same on every attempt on one Journey and different
     /// for every other (runtime-model section 15, *Delivery semantics*). A
     /// technology whose protocol carries a native identifier the far end
     /// deduplicates by — an AMQP `message-id`, a Kafka record key, an HTTP
