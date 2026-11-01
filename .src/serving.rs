@@ -354,129 +354,7 @@ impl<C> std::fmt::Debug for Serving<C> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::{BufRead, BufReader, Write};
-    use std::sync::atomic::{AtomicUsize, Ordering};
-
-    const WAIT: Option<Duration> = Some(Duration::from_secs(2));
-
-    /// A protocol whose exchange is a line, answered with `ok`; `bye` is
-    /// the connection's last; `wait` is answered later, by whoever takes
-    /// its answer from [`OWED`].
-    struct Lines {
-        reader: BufReader<TcpStream>,
-        peer: SocketAddr,
-        /// A `wait` taken and not answered: the connection is busy.
-        busy: Busy,
-    }
-
-    thread_local! {
-        /// The answers a `wait` owes, taken on this thread.
-        static OWED: std::cell::RefCell<Vec<crate::answer::Answer>> =
-            const { std::cell::RefCell::new(Vec::new()) };
-    }
-
-    impl Open for Lines {
-        fn socket(&self) -> &TcpStream {
-            self.reader.get_ref()
-        }
-
-        fn waiting(&self) -> bool {
-            !self.reader.buffer().is_empty()
-        }
-
-        fn busy(&self) -> Option<&Busy> {
-            Some(&self.busy)
-        }
-    }
-
-    fn line(lines: &mut Lines) -> Result<Turn<(String, SocketAddr)>> {
-        let mut line = String::new();
-        let read = lines
-            .reader
-            .read_line(&mut line)
-            .map_err(|e| classify("reading", &e))?;
-        if read == 0 {
-            return Ok(Turn::Closed);
-        }
-        if line.trim_end() == "wait" {
-            let owed = crate::answer::Answer::held(lines.reader.get_ref())?.busy(&lines.busy);
-            OWED.with(|answers| answers.borrow_mut().push(owed));
-            return Ok(Turn::Taken((line.trim_end().to_string(), lines.peer)));
-        }
-        lines
-            .reader
-            .get_mut()
-            .write_all(b"ok\n")
-            .map_err(|e| classify("answering", &e))?;
-        let line = line.trim_end().to_string();
-        Ok(if line == "bye" {
-            Turn::Last((line, lines.peer))
-        } else {
-            Turn::Taken((line, lines.peer))
-        })
-    }
-
-    /// The connection a new peer is, its peer read off the socket as a
-    /// technology whose origin names it would.
-    fn opened(stream: TcpStream, accepted: SocketAddr) -> Result<Lines> {
-        let peer = stream
-            .peer_addr()
-            .map_err(|e| classify("reading the peer", &e))?;
-        assert_eq!(peer, accepted);
-        Ok(Lines {
-            reader: BufReader::new(stream),
-            peer,
-            busy: Busy::new(),
-        })
-    }
-
-    struct Peer {
-        reader: BufReader<TcpStream>,
-    }
-
-    impl Peer {
-        fn to(address: &str) -> Self {
-            let stream = socket::connect_tcp(address, WAIT).expect("connect");
-            Self {
-                reader: BufReader::new(stream),
-            }
-        }
-
-        fn say(&mut self, line: &str) {
-            let written = format!("{line}\n");
-            self.reader
-                .get_mut()
-                .write_all(written.as_bytes())
-                .expect("say");
-        }
-
-        fn heard(&mut self) -> String {
-            let mut line = String::new();
-            self.reader.read_line(&mut line).expect("hear");
-            line
-        }
-    }
-
-    fn serving() -> (Serving<Lines>, String) {
-        let serving = Serving::new();
-        let binds = AtomicUsize::new(0);
-        let bind = || {
-            binds.fetch_add(1, Ordering::SeqCst);
-            socket::bind_tcp("127.0.0.1:0")
-        };
-        // Bound before any peer, as the first receive binds it.
-        drop(serving.next(bind, Some(Duration::from_millis(1)), opened, line));
-        let address = serving.address().expect("bound").to_string();
-        let again = serving.bound(|| panic!("bound twice")).expect("kept");
-        assert_eq!(again, address);
-        assert_eq!(binds.load(Ordering::SeqCst), 1);
-        (serving, address)
-    }
-
-    fn next(serving: &Serving<Lines>) -> Result<(String, SocketAddr)> {
-        let unbound = || -> Result<(TcpListener, String)> { panic!("bound twice") };
-        serving.next(unbound, WAIT, opened, line)
-    }
+    use crate::lines::{Peer, next, serving, waited};
 
     #[test]
     fn one_connection_carries_many_exchanges_one_per_receive() {
@@ -521,58 +399,9 @@ mod tests {
         let mut other = Peer::to(&address);
         other.say("other");
         assert_eq!(next(&serving).expect("the other").0, "other");
-        let unbound = || -> Result<(TcpListener, String)> { panic!("bound twice") };
         let within = Some(Duration::from_millis(50));
-        let error = serving
-            .next(unbound, within, opened, line)
-            .expect_err("only the busy one has spoken");
+        let error = waited(&serving, within).expect_err("only the busy one has spoken");
         assert!(error.retryable, "{error}");
-    }
-
-    #[test]
-    fn a_connection_freed_while_a_receive_waits_is_waited_on_at_once() {
-        // The receive waits as long as it takes, as a listening Location
-        // does: before 2026-10-21 a connection freed meanwhile was never
-        // waited on again, and the receive waited for good.
-        // Held as the fastest of each five rounds beside a plain loopback
-        // wake (`crate::latency`): a wake that waited its turn for a
-        // processor, under the other tests, is in some rounds only.
-        const ROUNDS: usize = 25;
-        let (serving, address) = serving();
-        let serving = Arc::new(serving);
-        let mut peer = Peer::to(&address);
-        let mut control = crate::latency::TcpControl::start();
-        let mut took = Vec::with_capacity(ROUNDS);
-        for _ in 0..ROUNDS {
-            peer.say("wait");
-            assert_eq!(next(&serving).expect("taken").0, "wait");
-            let owed = OWED.with(|answers| answers.borrow_mut().pop().expect("owed"));
-            let waiting = Arc::clone(&serving);
-            let receive = std::thread::spawn(move || {
-                let unbound = || -> Result<(TcpListener, String)> { panic!("bound twice") };
-                let taken = waiting.next(unbound, None, opened, line);
-                (taken, Instant::now())
-            });
-            // Answered on another thread while that receive waits, the
-            // connection's next line is taken at once.
-            owed.write(b"ok\n").expect("answered");
-            assert_eq!(peer.heard(), "ok\n");
-            let said = Instant::now();
-            peer.say("next");
-            let (taken, at) = receive.join().expect("the receive");
-            assert_eq!(taken.expect("the next line").0, "next");
-            took.push(at.saturating_duration_since(said));
-            assert_eq!(peer.heard(), "ok\n");
-            control.poke();
-        }
-        let took = xcore::latency::spread("a line on a connection freed meanwhile", took);
-        let machine = control.load();
-        assert!(
-            took.fastest_of_five < Duration::from_millis(1) + machine.fastest_of_five,
-            "taken {:?} after the line was said, the fastest of five, the machine's own {:?}",
-            took.fastest_of_five,
-            machine.fastest_of_five
-        );
     }
 
     #[test]
@@ -610,40 +439,11 @@ mod tests {
     fn nothing_arriving_is_retryable_within_the_timeout() {
         let (serving, _) = serving();
         let began = Instant::now();
-        let unbound = || -> Result<(TcpListener, String)> { panic!("bound twice") };
         let within = Some(Duration::from_millis(150));
-        let error = serving
-            .next(unbound, within, opened, line)
-            .expect_err("nothing");
+        let error = waited(&serving, within).expect_err("nothing");
         assert!(error.retryable, "{error}");
         let waited = began.elapsed();
         assert!(waited >= Duration::from_millis(100), "{waited:?}");
         assert!(waited < Duration::from_secs(2), "{waited:?}");
-    }
-
-    #[test]
-    fn exchanges_on_a_kept_connection_take_under_a_millisecond_each() {
-        // The owner's rule, held: around a payload, Xmip's own work is
-        // under a millisecond. A thousand lines on one kept connection, each
-        // answered before the next is said.
-        const ROUNDS: u32 = 1000;
-        let (serving, address) = serving();
-        let peer = std::thread::spawn(move || {
-            let mut peer = Peer::to(&address);
-            for _ in 0..ROUNDS {
-                peer.say("x");
-                assert_eq!(peer.heard(), "ok\n");
-            }
-        });
-        let began = Instant::now();
-        for _ in 0..ROUNDS {
-            next(&serving).expect("taken");
-        }
-        let took = began.elapsed();
-        peer.join().expect("peer");
-        assert!(
-            took < Duration::from_millis(u64::from(ROUNDS)),
-            "{ROUNDS} exchanges took {took:?}"
-        );
     }
 }

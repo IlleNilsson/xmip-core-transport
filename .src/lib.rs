@@ -95,6 +95,11 @@
 //!   payload.rs          the edge and sized payloads a loopback round is exercised with
 //!   latency.rs          a plain loopback TCP wake beside a round, its spread
 //!                       xcore::latency's: near real time, apart from load
+//!   lines.rs            a protocol whose exchange is a line, served on a kept listener,
+//!                       and the peer that speaks it: driven by serving.rs's tests and
+//!                       the timing program, tests/measured
+//!   echo.rs             a far end echoing a byte, and the pooled session that asks
+//!                       it: driven by pool.rs's tests and the timing program
 //!   unread.rs           a peer that keeps sending while it waits for its answer:
 //!                       a far end answering early must end through
 //!                       `socket::finish`
@@ -118,6 +123,8 @@ pub mod concurrent;
 pub mod configured;
 pub mod contiguous;
 pub mod direction;
+#[cfg(any(test, feature = "test-support"))]
+pub mod echo;
 pub mod error;
 pub mod file_name;
 #[cfg(feature = "tls")]
@@ -128,6 +135,8 @@ pub mod kept;
 #[cfg(any(test, feature = "test-support"))]
 pub mod latency;
 pub mod line;
+#[cfg(any(test, feature = "test-support"))]
+pub mod lines;
 pub mod listed;
 pub mod listening;
 pub mod login;

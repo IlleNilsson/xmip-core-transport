@@ -273,81 +273,11 @@ pub fn delivered<S: Pooled, T>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::echo::{Line, echo, echoing, opener};
     use crate::error::TransportError;
     use crate::socket;
     use std::io::{Read, Write};
     use std::time::Duration;
-
-    /// A session over TCP: usable while its far end has it open.
-    struct Line(TcpStream);
-
-    impl Pooled for Line {
-        fn usable(&mut self) -> bool {
-            alive(&self.0)
-        }
-    }
-
-    fn echo(line: &mut Line, byte: u8) -> Result<u8> {
-        let mut back = [0u8; 1];
-        line.0
-            .write_all(&[byte])
-            .and_then(|()| line.0.read_exact(&mut back))
-            .map_err(|e| crate::error::classify("echo", &e))?;
-        Ok(back[0])
-    }
-
-    /// Echoes one byte at a time on each connection it accepts, closing each
-    /// after `per` bytes; how many connections it accepted.
-    fn echoing(connections: usize, per: usize) -> (String, std::thread::JoinHandle<usize>) {
-        let (listener, address) = socket::bind_tcp("127.0.0.1:0").expect("bind");
-        let far_end = std::thread::spawn(move || {
-            for _ in 0..connections {
-                let (mut stream, _) =
-                    socket::accept_tcp(&listener, Some(Duration::from_secs(5))).expect("accept");
-                let mut one = [0u8; 1];
-                for _ in 0..per {
-                    if stream.read_exact(&mut one).is_err() {
-                        break;
-                    }
-                    stream.write_all(&one).expect("echoed");
-                }
-            }
-            connections
-        });
-        (address, far_end)
-    }
-
-    fn opener(address: &str) -> impl FnOnce() -> Result<Line> + '_ {
-        move || {
-            Ok(Line(socket::connect_tcp(
-                address,
-                Some(Duration::from_secs(5)),
-            )?))
-        }
-    }
-
-    #[test]
-    fn a_thousand_exchanges_on_one_key_open_one_session() {
-        const EXCHANGES: usize = 1000;
-        let (address, far_end) = echoing(1, EXCHANGES);
-        let pool: Pool<Line> = Pool::new();
-        let shared = pool.clone();
-        let began = std::time::Instant::now();
-        for n in 0..EXCHANGES {
-            let by = if n % 2 == 0 { &pool } else { &shared };
-            let byte = u8::try_from(n % 256).expect("a byte");
-            let back = by
-                .exchange(&address, opener(&address), |line| echo(line, byte))
-                .expect("echoed");
-            assert_eq!(back, byte);
-        }
-        // Generous for a debug build under load: a millisecond an exchange.
-        let took = began.elapsed();
-        assert!(took < Duration::from_millis(EXCHANGES as u64), "{took:?}");
-        assert_eq!(pool.opened(), 1);
-        drop((pool, shared));
-        assert_eq!(far_end.join().expect("far end"), 1);
-    }
 
     #[test]
     fn sessions_to_far_ends_that_hung_up_are_closed_not_kept() {

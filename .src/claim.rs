@@ -29,7 +29,7 @@
 mod claimant;
 mod claiming;
 mod hold;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 mod memory;
 mod site;
 mod sited;
@@ -43,6 +43,8 @@ pub use claimant::{
     Claim, Claimant, MARK, TURN, claim_of, is_claimed, is_turn, may_arrive, turn_of,
 };
 pub use claiming::{Claiming, Held, Taken};
+#[cfg(any(test, feature = "test-support"))]
+pub use memory::Memory;
 pub use site::{ClaimSite, Listed, Restore};
 pub use sited::{Site, Sited};
 pub use unfinished::{SENDING, Unfinished, is_unfinished, sender_of};

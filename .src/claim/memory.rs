@@ -65,6 +65,7 @@ impl Memory {
     }
 
     /// The time spent in the far end's operations so far.
+    #[must_use]
     pub fn spent(&self) -> Duration {
         self.held().spent
     }
@@ -78,6 +79,7 @@ impl Memory {
     }
 
     /// The names lying here, turns too.
+    #[must_use]
     pub fn names(&self) -> BTreeSet<String> {
         let held = self.held();
         held.files
@@ -88,6 +90,7 @@ impl Memory {
     }
 
     /// The bytes of `name`.
+    #[must_use]
     pub fn read(&self, name: &str) -> Option<Vec<u8>> {
         self.held().files.get(name).map(|(bytes, _)| bytes.clone())
     }
