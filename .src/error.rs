@@ -56,7 +56,7 @@ const fn passes(kind: io::ErrorKind) -> bool {
 /// ephemeral port left with *Only one usage of each socket address
 /// (protocol/network address/port) is normally permitted*, which names
 /// neither the resource nor the wait. It cost a day to read, because the
-/// Playground exhausted the range and the message read as a bind collision
+/// Essentials exhausted the range and the message read as a bind collision
 /// (2026-09-21). A raw TCP Stream is one connection (`xmip-core-transport-tcp`
 /// README), so a node sending at volume over unframed TCP spends one local
 /// port per Stream and the operating system holds it for minutes afterwards.

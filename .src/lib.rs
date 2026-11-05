@@ -53,7 +53,7 @@
 //!   node.rs             the node a transport is built on, by its location, given
 //!                       once as the runtime builds it
 //!   loopback.rs         a transport that is both ends of one exchange, with its
-//!                       ceiling and refusals; what the Playground drives (ADR-0051);
+//!                       ceiling and refusals; what the Essentials drives (ADR-0051);
 //!                       both ends on two threads, and the poke that releases a far end
 //!
 //! the far ends          what a technology's loopback stands up (ADR-0051)

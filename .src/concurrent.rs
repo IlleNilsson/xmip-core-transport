@@ -4,7 +4,7 @@
 //! A loopback's far end serves its one client for one round (`listening.rs`);
 //! a far end several near ends reach at once — the receiving nodes of a
 //! cluster racing for the same files at one server (ADR-0024, amendment
-//! 2026-10-13; the Playground's drop box, ADR-0028, amendment 2026-10-13) —
+//! 2026-10-13; the Essentials' drop box, ADR-0028, amendment 2026-10-13) —
 //! serves them all, together. FTP and SFTP both stand one up; the accepting
 //! is written here once.
 

@@ -156,7 +156,7 @@ impl<S: Pooled, K: Ord> Pool<S, K> {
     /// for longer than until the next one it opens. A key that is never
     /// asked for again — a far end at a port of its own, gone — would
     /// otherwise keep its session for good, and until 2026-09-29 the
-    /// Playground's nodes kept one such socket a round, in `CLOSE_WAIT`,
+    /// Essentials' nodes kept one such socket a round, in `CLOSE_WAIT`,
     /// until the machine was out of ephemeral ports.
     fn let_go_unusable(&self) {
         self.all().retain(|_, kept| {
@@ -281,7 +281,7 @@ mod tests {
 
     #[test]
     fn sessions_to_far_ends_that_hung_up_are_closed_not_kept() {
-        // The Playground, 2026-09-29: every round sent to a far end at a new
+        // The Essentials, 2026-09-29: every round sent to a far end at a new
         // port, the far end hung up after its exchange, and the pool kept
         // the session under a key never asked for again — a socket in
         // CLOSE_WAIT a round, until the machine had no ephemeral port left.
