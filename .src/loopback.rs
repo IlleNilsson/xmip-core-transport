@@ -2,13 +2,13 @@
 //!
 //! ADR-0028 clause 5: the far end is Xmip. Every transport that ships both a
 //! server's worth of protocol and a client can be its own counterparty, and
-//! the Playground exercises it that way — nothing external is stood up. What
+//! the Essentials exercises it that way — nothing external is stood up. What
 //! that takes is one dance per protocol: stand up the far end, learn where
 //! it listens, send from a fresh near end, take the one arrival. Until
-//! 2026-09-11 that dance was written in the Playground, once per transport,
+//! 2026-09-11 that dance was written in the Essentials, once per transport,
 //! forty-two times over. It belongs with the protocol (ADR-0051): a
 //! technology implements [`Loopback`], and whoever drives it — the
-//! Playground, the technology's own tests — calls [`Loopback::round`].
+//! Essentials, the technology's own tests — calls [`Loopback::round`].
 //!
 //! The ceiling and the refusals live here too, because they are facts about
 //! the protocol and are written where they come from (ADR-0028, amendment
@@ -209,7 +209,7 @@ pub fn poke(address: &str) {
 /// to judge in its own words. [`Loopback::round`] is this over a far end
 /// and a near end; a far end that delivers onward — SNS to its
 /// subscription, Event Grid to its webhook — is this again, inside, and so
-/// is the Playground filing an archive through a far end it serves.
+/// is the Essentials filing an archive through a far end it serves.
 ///
 /// A taking thread that panicked is a failed take.
 pub fn both_ends<T: Send, U, E>(

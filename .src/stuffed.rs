@@ -5,7 +5,7 @@
 //!
 //! Until 2026-09-10 both technologies cut the bytes into lines, wrote each
 //! with CRLF and joined them back with CRLF: a bare LF came back as CRLF and
-//! a trailing CRLF was lost, which the playground's edge payloads found. This
+//! a trailing CRLF was lost, which the essentials' edge payloads found. This
 //! writes the bytes as they are — a period doubled at the start and after
 //! every CRLF, the terminator after — and reads them back to the first
 //! `CRLF . CRLF`, so what was sent is what arrives. Text mail is on the wire

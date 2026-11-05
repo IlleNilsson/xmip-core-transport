@@ -194,7 +194,12 @@ mod tests {
     fn an_answer_that_came_late_is_not_taken_for_the_next_one() {
         let (far, address) = receiver("127.0.0.1:0").expect("bind");
         let sender = Sender::new();
-        let ask = |question: &[u8]| {
+        // The far end answers inside the exchange, on this thread, between
+        // the question and the read: a far end on a thread of its own was
+        // first scheduled up to 172 ms after the question under load, and
+        // a full estate run once saw the asker's whole wait spent before
+        // it answered (2026-11-04).
+        let ask = |question: &[u8], late: bool| {
             sender.exchange(&address, |socket, peer| {
                 socket
                     .set_read_timeout(Some(Duration::from_secs(2)))
@@ -202,33 +207,19 @@ mod tests {
                 socket
                     .send_to(question, peer)
                     .map_err(|e| classify("send", &e))?;
+                let mut heard = [0u8; 8];
+                let (read, asker) = far.recv_from(&mut heard).expect("asked");
+                if late {
+                    far.send_to(b"late", asker).expect("late");
+                }
+                far.send_to(&heard[..read], asker).expect("answered");
                 let mut buffer = [0u8; 8];
                 let read = socket.recv(&mut buffer).map_err(|e| classify("recv", &e))?;
                 Ok(buffer[..read].to_vec())
             })
         };
-        let answer = |extra: bool| {
-            let mut buffer = [0u8; 8];
-            let (read, peer) = far.recv_from(&mut buffer).expect("asked");
-            if extra {
-                far.send_to(b"late", peer).expect("late");
-            }
-            far.send_to(&buffer[..read], peer).expect("answered");
-        };
-        let asking = std::thread::scope(|scope| {
-            let far_end = scope.spawn(|| answer(true));
-            let first = ask(b"one");
-            far_end.join().expect("far end");
-            first
-        });
         // The first answer read was "late"; "one" is still waiting.
-        assert_eq!(asking.expect("first"), b"late");
-        let second = std::thread::scope(|scope| {
-            let far_end = scope.spawn(|| answer(false));
-            let second = ask(b"two");
-            far_end.join().expect("far end");
-            second
-        });
-        assert_eq!(second.expect("second"), b"two");
+        assert_eq!(ask(b"one", true).expect("first"), b"late");
+        assert_eq!(ask(b"two", false).expect("second"), b"two");
     }
 }
