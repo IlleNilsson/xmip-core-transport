@@ -11,9 +11,10 @@
 
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
+use xcore::lock::Locked;
 
 use xcore::latency::{Spread, spread};
 
@@ -46,7 +47,7 @@ impl TcpControl {
             let mut byte = [0u8; 1];
             while far.read_exact(&mut byte).is_ok() {
                 let now = Instant::now();
-                let stamps = stamps.lock().unwrap_or_else(PoisonError::into_inner);
+                let stamps = stamps.locked();
                 if let Some(sent) = stamps.get(taken.len()) {
                     taken.push(now - *sent);
                 }
@@ -61,10 +62,7 @@ impl TcpControl {
     /// # Panics
     /// Where the loopback connection broke.
     pub fn poke(&mut self) {
-        self.sent
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .push(Instant::now());
+        self.sent.locked().push(Instant::now());
         self.near.write_all(&[1]).expect("the control waits");
     }
 

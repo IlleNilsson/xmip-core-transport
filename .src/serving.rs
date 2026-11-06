@@ -23,8 +23,9 @@
 //! where the Location waits as long as it takes.
 
 use std::net::{SocketAddr, TcpListener, TcpStream, UdpSocket};
-use std::sync::{Arc, Mutex, OnceLock, PoisonError};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
+use xcore::lock::Locked;
 
 use rustix::fd::AsFd;
 
@@ -168,10 +169,7 @@ impl<C: Open> Serving<C> {
     /// How many connections are kept open now.
     #[must_use]
     pub fn open(&self) -> usize {
-        self.open
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .len()
+        self.open.locked().len()
     }
 
     /// The next exchange, from whichever peer sends first within `timeout`
@@ -200,7 +198,7 @@ impl<C: Open> Serving<C> {
             }
             Ok(made)
         };
-        let mut open = self.open.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut open = self.open.locked();
         let deadline = timeout.map(|timeout| Instant::now() + timeout);
         let waiting = Waiting {
             listener,

@@ -6,8 +6,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::ops::{Deref, DerefMut};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
+use xcore::lock::Locked;
 
 use crate::error::Result;
 
@@ -60,7 +61,7 @@ impl Drop for Operation<'_> {
 impl Memory {
     fn held(&self) -> Operation<'_> {
         let started = Instant::now();
-        let held = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let held = self.0.locked();
         Operation { held, started }
     }
 

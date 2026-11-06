@@ -27,7 +27,8 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex};
+use xcore::lock::Locked;
 
 use crate::acknowledgement::Verdict;
 use crate::error::{Result, TransportError};
@@ -152,7 +153,7 @@ impl<S: Clone + Eq + Send + 'static> Claiming<S> {
             .inner
             .refused
             .sift(found, |(name, _)| name, |(_, stamp)| stamp.clone());
-        let mut listed = lock(&self.inner.listed);
+        let mut listed = self.inner.listed.locked();
         let mut seen = HashMap::new();
         let mut taken = Vec::new();
         let mut broken = None;
@@ -243,7 +244,7 @@ impl<S: Clone + Eq + Send + 'static> Claiming<S> {
             Err(failed) => failed.message,
         };
         let why = held_because(&why, claimed);
-        lock(&self.inner.held).insert(
+        self.inner.held.locked().insert(
             claimed.to_string(),
             Held {
                 claimed: claimed.to_string(),
@@ -258,7 +259,7 @@ impl<S: Clone + Eq + Send + 'static> Claiming<S> {
     /// each refused one remembered; every one gone from under its claimed
     /// name forgotten. Nothing held costs one lock.
     pub fn settle<P: ClaimSite<Stamp = S> + ?Sized>(&self, site: &P) {
-        let mut held = lock(&self.inner.held);
+        let mut held = self.inner.held.locked();
         held.retain(|claimed, file| {
             let Some(claim) = claim_of(claimed) else {
                 return false;
@@ -286,7 +287,7 @@ impl<S: Clone + Eq + Send + 'static> Claiming<S> {
     /// What is held now, by claimed name.
     #[must_use]
     pub fn held(&self) -> Vec<Held> {
-        lock(&self.inner.held).values().cloned().collect()
+        self.inner.held.locked().values().cloned().collect()
     }
 
     /// Every claim this claimant's name still holds at `site` returned, and
@@ -327,8 +328,4 @@ fn finished<P: ClaimSite + ?Sized>(site: &P, name: &str, stable: bool) -> bool {
 /// it.
 fn held_because(why: &str, claimed: &str) -> String {
     format!("{why}; held as {claimed} and returned once its name is free")
-}
-
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
