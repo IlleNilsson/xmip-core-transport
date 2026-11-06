@@ -12,7 +12,8 @@
 use std::collections::HashMap;
 use std::fmt;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
+use xcore::lock::Locked;
 
 use crate::error::{Result, protocol_error};
 use crate::held::Held;
@@ -54,7 +55,7 @@ impl<S> fmt::Debug for Standing<S> {
 
 impl<S> Standing<S> {
     fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, S>> {
-        self.sessions.lock().unwrap_or_else(PoisonError::into_inner)
+        self.sessions.locked()
     }
 
     /// Stand `session` up under a fresh address, `<scheme>://loopback/<n>`.

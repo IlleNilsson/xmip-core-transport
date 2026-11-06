@@ -4,7 +4,8 @@
 use std::io::ErrorKind;
 use std::net::{SocketAddr, ToSocketAddrs, UdpSocket};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
+use xcore::lock::Locked;
 
 use crate::error::{Result, TransportError, classify};
 
@@ -87,7 +88,7 @@ impl Sender {
         } else {
             (&self.v6, "[::]:0")
         };
-        let mut held = kept.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut held = kept.locked();
         if held.is_none() {
             let socket =
                 UdpSocket::bind(any).map_err(|e| classify("binding the sending socket", &e))?;

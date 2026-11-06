@@ -15,7 +15,8 @@
 //! consumed ([`crate::listening`], [`crate::bound`]).
 
 use std::fmt;
-use std::sync::{Mutex, OnceLock, PoisonError};
+use std::sync::{Mutex, OnceLock};
+use xcore::lock::Locked;
 
 use crate::error::Result;
 
@@ -49,7 +50,7 @@ impl<L> Kept<L> {
         if let Some((listener, _)) = self.bound.get() {
             return Ok(listener);
         }
-        let _one = self.binding.lock().unwrap_or_else(PoisonError::into_inner);
+        let _one = self.binding.locked();
         if let Some((listener, _)) = self.bound.get() {
             return Ok(listener);
         }

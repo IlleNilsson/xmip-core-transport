@@ -9,7 +9,8 @@
 //! tallies them and settles once every one has a verdict — or was dropped
 //! without one, which is told as `None`.
 
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
+use xcore::lock::Locked;
 
 use crate::acknowledgement::{Acknowledgement, Verdict};
 use crate::error::Result;
@@ -71,7 +72,7 @@ impl Place {
             return Ok(());
         };
         let (settle, verdicts) = {
-            let mut tally = tally.lock().unwrap_or_else(PoisonError::into_inner);
+            let mut tally = tally.locked();
             tally.verdicts[self.at] = verdict;
             tally.left -= 1;
             if tally.left > 0 {

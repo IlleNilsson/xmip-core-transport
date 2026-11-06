@@ -11,7 +11,8 @@
 //! and a record accepted after one failed moves nothing.
 
 use std::fmt;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
+use xcore::lock::Locked;
 
 use crate::acknowledgement::{Acknowledgement, Verdict};
 
@@ -75,7 +76,7 @@ impl<P> Contiguous<P> {
     }
 
     fn held(&self) -> MutexGuard<'_, P> {
-        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+        self.0.locked()
     }
 }
 

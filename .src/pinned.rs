@@ -22,7 +22,8 @@ use std::collections::BTreeMap;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, PoisonError};
+use std::sync::Mutex;
+use xcore::lock::Locked;
 
 use crate::error::{Result, TransportError};
 
@@ -69,7 +70,7 @@ impl Pinned {
     /// A permanent failure where another fingerprint is pinned for `name`,
     /// naming both; where the file could not be read or written.
     pub fn hold(&self, name: &str, fingerprint: &str) -> Result<()> {
-        let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut held = self.held.locked();
         if held.is_none() {
             *held = Some(self.read()?);
         }

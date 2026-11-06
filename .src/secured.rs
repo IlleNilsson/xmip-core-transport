@@ -13,6 +13,8 @@
 
 use std::fmt;
 use std::sync::Arc;
+#[cfg(any(test, feature = "test-support"))]
+use xcore::lock::Locked;
 
 use xcore::{Secret, SecretKind, SecretName, Secrets};
 
@@ -120,10 +122,7 @@ impl Kept {
     pub fn set(&self, name: &str, kind: SecretKind, value: &str) {
         let name = SecretName::new(name).expect("a secret name");
         let secret = Secret::new(name.clone(), kind, value.as_bytes().to_vec()).expect("a secret");
-        self.0
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .insert(name.to_string(), secret);
+        self.0.locked().insert(name.to_string(), secret);
     }
 
     /// A Location's secret `name`, read from here.
@@ -150,10 +149,7 @@ impl Kept {
 #[cfg(any(test, feature = "test-support"))]
 impl Secrets for Kept {
     fn secret(&self, name: &SecretName) -> std::result::Result<Option<Secret>, xcore::Failure> {
-        let kept = self
-            .0
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let kept = self.0.locked();
         Ok(kept.get(name.as_str()).cloned())
     }
 }

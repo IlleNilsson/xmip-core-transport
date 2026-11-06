@@ -28,8 +28,9 @@
 
 use std::collections::BTreeSet;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::{Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
+use xcore::lock::Locked;
 
 use crate::error::Result;
 
@@ -47,7 +48,7 @@ static SENDS: AtomicU64 = AtomicU64::new(0);
 static IN_FLIGHT: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
 
 fn in_flight() -> MutexGuard<'static, BTreeSet<String>> {
-    IN_FLIGHT.lock().unwrap_or_else(PoisonError::into_inner)
+    IN_FLIGHT.locked()
 }
 
 /// The name one send writes under before it is renamed into place, held

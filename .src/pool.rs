@@ -17,7 +17,8 @@ use std::fmt;
 use std::io::ErrorKind;
 use std::net::TcpStream;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
+use xcore::lock::Locked;
 
 use crate::error::{Result, protocol_error};
 
@@ -147,7 +148,7 @@ impl<S: Pooled, K: Ord> Pool<S, K> {
     }
 
     fn all(&self) -> MutexGuard<'_, BTreeMap<K, Vec<S>>> {
-        self.kept.lock().unwrap_or_else(PoisonError::into_inner)
+        self.kept.locked()
     }
 
     /// Every kept session that can no longer carry an exchange let go, under

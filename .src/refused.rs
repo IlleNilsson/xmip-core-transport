@@ -19,7 +19,8 @@
 
 use std::collections::HashMap;
 use std::hash::Hash;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex};
+use xcore::lock::Locked;
 
 use crate::acknowledgement::{Acknowledgement, Verdict};
 
@@ -48,7 +49,7 @@ impl<K, S> Default for Refused<K, S> {
 
 impl<K, S> std::fmt::Debug for Refused<K, S> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Refused({})", lock(&self.held).len())
+        write!(f, "Refused({})", self.held.locked().len())
     }
 }
 
@@ -70,7 +71,7 @@ where
         name: impl Fn(&T) -> &K,
         mut stamp: impl FnMut(&T) -> Option<S>,
     ) -> Vec<T> {
-        let mut held = std::mem::take(&mut *lock(&self.held));
+        let mut held = std::mem::take(&mut *self.held.locked());
         let mut still = HashMap::new();
         let mut kept = Vec::with_capacity(listing.len());
         for item in listing {
@@ -84,7 +85,7 @@ where
         }
         // What was refused while this listing asked is kept too, and is
         // the newer stamp.
-        let mut now = lock(&self.held);
+        let mut now = self.held.locked();
         for (name, was) in still {
             now.entry(name).or_insert(was);
         }
@@ -93,7 +94,7 @@ where
 
     /// Remember `name` refused as `stamp`.
     pub fn remember(&self, name: K, stamp: S) {
-        lock(&self.held).insert(name, stamp);
+        self.held.locked().insert(name, stamp);
     }
 
     /// `told`, which leaves its item where it lies on a refusal, remembering
@@ -116,7 +117,7 @@ where
     /// How many refusals are remembered.
     #[must_use]
     pub fn len(&self) -> usize {
-        lock(&self.held).len()
+        self.held.locked().len()
     }
 
     /// Whether nothing refused is remembered.
@@ -124,10 +125,6 @@ where
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
-}
-
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 #[cfg(test)]
