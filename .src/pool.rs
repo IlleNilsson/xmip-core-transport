@@ -277,6 +277,7 @@ mod tests {
     use crate::echo::{Line, echo, echoing, opener};
     use crate::error::TransportError;
     use crate::socket;
+    use std::assert_matches;
     use std::io::{Read, Write};
     use std::time::Duration;
 
@@ -317,8 +318,9 @@ mod tests {
                 .expect("timeout");
             let mut rest = [0u8; 1];
             let read = stream.read(&mut rest);
-            assert!(
-                matches!(read, Ok(0)),
+            assert_matches!(
+                read,
+                Ok(0),
                 "round {round}: the pool still holds the session ({read:?})"
             );
         }

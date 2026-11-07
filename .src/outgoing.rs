@@ -399,6 +399,7 @@ fn unread(failed: &io::Error) -> TransportError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::assert_matches;
     use std::cell::Cell;
 
     /// A body of `length` patterned bytes that counts how often it was
@@ -417,10 +418,7 @@ mod tests {
     fn a_held_body_is_lent_as_it_is_and_keyed() {
         let outgoing = Outgoing::held(b"ISA*00*").keyed("J1");
         assert_eq!((outgoing.length(), outgoing.key()), (7, Some("J1")));
-        assert!(matches!(
-            outgoing.gather().expect("whole"),
-            Cow::Borrowed(b"ISA*00*")
-        ));
+        assert_matches!(outgoing.gather().expect("whole"), Cow::Borrowed(b"ISA*00*"));
         let mut sink = Vec::new();
         assert_eq!(outgoing.write_to(&mut sink).expect("written"), 7);
         assert_eq!(sink, b"ISA*00*");
