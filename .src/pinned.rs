@@ -124,7 +124,7 @@ impl Pinned {
             .open(file)
             .map_err(|unopened| unkept(file, &unopened))?;
         kept.write_all(format!("{fingerprint} {name}\n").as_bytes())
-            .and_then(|()| kept.sync_all())
+            .and_then(|()| xcore::spent::on_sync(|| kept.sync_all()))
             .map_err(|unwritten| unkept(file, &unwritten))
     }
 }
