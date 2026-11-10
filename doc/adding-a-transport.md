@@ -5,7 +5,7 @@ lives where its subject lives).
 
 A transport is a technology of this capability: its repository is
 `xmip-core-transport-<name>`, declared under `[xmip.core.transport.<name>]` in
-`architecture.xmip`, mounted at `<name>` directly inside this repository
+`architecture.toml`, mounted at `<name>` directly inside this repository
 (ADR-0016, amended 2026-09-07), and it depends on this crate, never the
 reverse. How a repository is named, declared, created, mounted and landed is
 the estate's and is not repeated here: `doc/architecture/repository-model.md`
