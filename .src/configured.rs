@@ -43,6 +43,22 @@ pub trait Configured: Transport + Sized {
         net::Target::under(Self::SCHEMES, address).map_or(address, |target| target.after_scheme())
     }
 
+    /// The target every send from a Location of this technology at
+    /// `address` names (the runtime's `Sending::target`). By default the
+    /// address in its own terms ([`Configured::own_terms`]), for a
+    /// technology whose address is where a send goes: a host and port, a
+    /// URL, a path. A technology whose address names a server and whose
+    /// settings name the destination on it — a broker and its topic, a
+    /// namespace and its queue, a bus and its object — names
+    /// [`crate::destination::OWN`], which its send reads as that configured
+    /// destination ([`crate::destination::named`]), so a Send Location
+    /// sends where its configuration says; a target naming another still
+    /// wins (ADR-0064, amendment 2026-11-10).
+    #[must_use]
+    fn own_target(address: &str) -> &str {
+        Self::own_terms(address)
+    }
+
     /// This technology at `address`, in its own terms ([`Configured::own_terms`]),
     /// with the settings its declaration read.
     ///
@@ -225,6 +241,15 @@ mod tests {
         assert_eq!(built.expect("built").address, "host:1/orders");
         let bare = Example::open("host:1", Applies::Send, &given).expect("built");
         assert_eq!(bare.address, "host:1", "an address with no scheme is kept");
+    }
+
+    #[test]
+    fn a_send_names_its_address_in_its_own_terms_unless_the_technology_says_otherwise() {
+        assert_eq!(
+            Example::own_target("EXAMPLE://host:1/orders"),
+            "host:1/orders"
+        );
+        assert_eq!(Example::own_target("host:1"), "host:1");
     }
 
     #[test]

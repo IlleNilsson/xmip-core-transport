@@ -78,11 +78,27 @@ impl Configured for KafkaTransport {
     /// The schemes a Location's address is entered with to choose this technology.
     const SCHEMES: &'static [&'static str] = &["kafka"];
 
+    /// The topic setting: the address names only the broker.
+    fn own_target(_address: &str) -> &str {
+        transport::destination::OWN
+    }
+
     fn configured(address: &str, settings: &Read) -> Result<Self> {
         Ok(Self::new(address, settings.text("topic")))
     }
 }
 ```
+
+Every send from a Location names the target `Configured::own_target` gives
+(ADR-0064, amendment 2026-11-10). Leave the default, the address in the
+technology's own terms, where the address is where a send goes: a host and
+port, a URL, a path. Where the address names a server and a setting names the
+destination on it — a topic, a queue, a subject, an object — return
+`transport::destination::OWN`, the empty target, and read it in `send_from`
+as that configured destination through `transport::destination::named`,
+never a comparison of your own; `transport::destination::on_server` is that
+reading for a server and one destination on it. A target naming another
+still wins.
 
 The declaration is the technology's documentation, its form in VS Code and
 the desktop editor, and what `configure` holds a Location's `settings` table

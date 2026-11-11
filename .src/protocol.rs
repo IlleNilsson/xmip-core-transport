@@ -98,6 +98,12 @@ pub trait Transport {
     /// and its README says so; a send repeated after a lost answer is then
     /// delivered once. Every other sends as it always does, at least once.
     ///
+    /// A technology whose Location's settings name where a send goes — a
+    /// topic, a queue, a subject — reads the empty target
+    /// ([`crate::destination::OWN`]) as that destination, through
+    /// [`crate::destination::named`]: what its Send Location names
+    /// (`Configured::own_target`); a target naming another still wins.
+    ///
     /// # Errors
     ///
     /// Where the target is not addressable in this protocol, the endpoint

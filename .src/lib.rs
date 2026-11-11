@@ -50,6 +50,9 @@
 //!                       family's turn and rename, written once (claim/)
 //!   configured.rs       the settings a technology declares, and the one way a
 //!                       Location's address and settings build it (ADR-0064)
+//!   destination.rs      where a send goes when an address names the server and a
+//!                       setting the destination on it: the empty target a Send
+//!                       Location names, or a target naming another
 //!   node.rs             the node a transport is built on, by its location, given
 //!                       once as the runtime builds it
 //!   loopback.rs         a transport that is both ends of one exchange, with its
@@ -122,6 +125,7 @@ pub mod claim;
 pub mod concurrent;
 pub mod configured;
 pub mod contiguous;
+pub mod destination;
 pub mod direction;
 #[cfg(any(test, feature = "test-support"))]
 pub mod echo;
