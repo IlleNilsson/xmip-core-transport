@@ -163,9 +163,10 @@ impl<'a> Outgoing<'a> {
 
     /// Let its far end see it only once `kept` returns: the runtime hands a
     /// technology that holds its delivery back ([`crate::Transport::holds_back`])
-    /// a Message whose Publication is still being synced to the Ledger, so the
-    /// send is written meanwhile and made visible once the Message is
-    /// durable (ADR-0018, amendment 2026-10-20).
+    /// a Message whose Publication, or whose claim, is still being synced to
+    /// the Ledger, so the send is written meanwhile and made visible once
+    /// what it is sent under is durable (ADR-0018, amendments 2026-10-20 and
+    /// 2026-11-12).
     #[must_use]
     pub const fn kept_by(mut self, kept: &'a dyn Fn() -> Result<()>) -> Self {
         self.kept = Some(kept);
@@ -177,9 +178,10 @@ impl<'a> Outgoing<'a> {
     ///
     /// # Errors
     ///
-    /// Where it could not be kept: the far end must not see it, and the
-    /// send fails retryable, its Message kept or its sender told to send
-    /// again.
+    /// Where it could not be kept — its Publication's or its claim's sync
+    /// failed, no word of it came, or its claim is no longer its sender's:
+    /// the far end must not see it, and the send fails retryable, its
+    /// Message kept or its sender told to send again.
     pub fn kept(&self) -> Result<()> {
         self.kept.map_or(Ok(()), |kept| kept())
     }

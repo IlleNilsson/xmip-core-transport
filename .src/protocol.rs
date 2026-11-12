@@ -126,9 +126,12 @@ pub trait Transport {
     /// [`Outgoing::kept`] returns — a file written beside its target and
     /// renamed into place only then — or `None`, where the far end sees a
     /// send as it is made. The runtime hands a technology that holds back a
-    /// Message whose Publication is still being synced to the Ledger, so
-    /// the send's own work and the sync overlap; every other it hands the
-    /// Message only once it is durable (ADR-0018, amendment 2026-10-20).
+    /// Message whose Publication, or whose claim, is still being synced to
+    /// the Ledger, so the send's own work and the sync overlap; every other
+    /// it hands the Message only once it is durable (ADR-0018, amendments
+    /// 2026-10-20 and 2026-11-12). One that says `Some` lets no reader of
+    /// its far end see what it wrote before `kept` returns, calls it once,
+    /// at its last step, and abandons the send where it errs.
     fn holds_back(&self) -> Option<&'static str> {
         None
     }
