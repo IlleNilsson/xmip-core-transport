@@ -16,23 +16,31 @@
 //!
 //! A busy connection is left out of the wait, and its answer, given on
 //! another thread, frees it while a receive waits for the others: the
-//! answer tells the wait so ([`Freed`]), and the wait takes the connection
+//! answer tells the wait so (`answer::Freed`), and the wait takes the connection
 //! in again at once. Until 2026-10-21 nothing told it, and the next request
 //! on a connection freed meanwhile waited out the Location's whole wait — a
 //! tenth of a second a Message in the runtime's node test, and for good
 //! where the Location waits as long as it takes.
+//!
+//! **A caller's own failure ends its connection, never the Location**
+//! (2026-11-13). Where readying a new peer's connection, opening it or a
+//! turn on it fails, that connection is let go, its caller kept as turned
+//! away ([`crate::turned`]) for the runtime to audit, and the wait goes on
+//! for the others. Only the listener's own failure — its bind, its wait,
+//! its accept — is the receive's.
 
-use std::net::{SocketAddr, TcpListener, TcpStream, UdpSocket};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use xcore::lock::Locked;
 
 use rustix::fd::AsFd;
 
-use crate::answer::Busy;
+use crate::answer::{Busy, Freed};
 use crate::error::{Result, TransportError, classify};
 use crate::kept::Kept;
 use crate::socket;
+use crate::turned::Turned;
 
 /// The most connections kept open at once. One more accepted lets the one
 /// kept longest go, so a crowd of idle peers costs a bounded number of
@@ -68,44 +76,6 @@ fn owing(open: &impl Open) -> bool {
     open.busy().is_some_and(Busy::is_busy)
 }
 
-/// What an answer tells the wait for a Receive Location's peers once it
-/// frees its connection: a datagram to a socket of the wait's own on
-/// loopback, watched beside the listener and the idle connections. A
-/// datagram, so telling leaves nothing waiting to close.
-#[derive(Clone, Debug)]
-pub struct Freed {
-    socket: Arc<UdpSocket>,
-    at: SocketAddr,
-}
-
-impl Freed {
-    fn new() -> Result<Self> {
-        let socket = UdpSocket::bind("127.0.0.1:0")
-            .and_then(|socket| socket.set_nonblocking(true).map(|()| socket))
-            .map_err(|e| classify("binding the wait's own socket", &e))?;
-        let at = socket
-            .local_addr()
-            .map_err(|e| classify("reading the wait's own socket", &e))?;
-        Ok(Self {
-            socket: Arc::new(socket),
-            at,
-        })
-    }
-
-    /// A connection is free: the wait, if one runs, takes it in again. A
-    /// datagram that finds the socket's buffer full is not needed, the
-    /// wait being told already.
-    pub(crate) fn tell(&self) {
-        drop(self.socket.send_to(&[0], self.at));
-    }
-
-    /// Everything told so far read off, so the next wait waits.
-    fn heard(&self) {
-        let mut told = [0u8; 1];
-        while self.socket.recv_from(&mut told).is_ok() {}
-    }
-}
-
 /// What one turn on a connection came to.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Turn<T> {
@@ -121,12 +91,21 @@ pub enum Turn<T> {
     Closed,
 }
 
+/// A connection kept open, and the peer it was accepted from: the caller
+/// turned away where its own turn fails.
+struct Connection<C> {
+    open: C,
+    peer: SocketAddr,
+}
+
 /// A kept listener and the connections kept open on it.
 pub struct Serving<C> {
     listener: Kept<TcpListener>,
-    open: Mutex<Vec<C>>,
+    open: Mutex<Vec<Connection<C>>>,
     /// What a busy connection's answer tells, made with the listener.
     freed: OnceLock<Freed>,
+    /// The callers turned away since the runtime last asked.
+    turned: Mutex<Turned>,
 }
 
 impl<C: Open> Serving<C> {
@@ -137,7 +116,15 @@ impl<C: Open> Serving<C> {
             listener: Kept::new(),
             open: Mutex::new(Vec::new()),
             freed: OnceLock::new(),
+            turned: Mutex::new(Turned::new()),
         }
+    }
+
+    /// The callers turned away since this was last asked, taken: what a
+    /// technology's `Transport::turned_away` hands the runtime.
+    #[must_use]
+    pub fn turned_away(&self) -> Turned {
+        std::mem::take(&mut *self.turned.locked())
     }
 
     /// What a busy connection's answer tells, made on the first wait.
@@ -177,11 +164,14 @@ impl<C: Open> Serving<C> {
     /// Location does): the listener bound by `bind` where it is not yet, a
     /// new peer made a connection by `opened` and kept, and a turn taken on
     /// a connection by `exchange`. A connection's timeout on its reads is
-    /// `timeout` too, so a peer that stops mid-exchange is let go.
+    /// `timeout` too, so a peer that stops mid-exchange is let go. A peer
+    /// whose connection could not be readied or opened, or whose turn
+    /// failed, is let go and turned away ([`Serving::turned_away`]), and
+    /// the wait goes on.
     ///
     /// # Errors
-    /// Where the listener could not be bound, nothing arrived within
-    /// `timeout` (retryable), or a turn failed — whose connection is let go.
+    /// Where the listener could not be bound, waited on or accepted from,
+    /// or nothing arrived within `timeout` (retryable).
     pub fn next<T>(
         &self,
         bind: impl FnOnce() -> Result<(TcpListener, String)>,
@@ -203,6 +193,7 @@ impl<C: Open> Serving<C> {
         let waiting = Waiting {
             listener,
             freed,
+            turned: &self.turned,
             deadline,
             timeout,
         };
@@ -210,12 +201,12 @@ impl<C: Open> Serving<C> {
             // What is already read goes first: no socket will say so.
             let Some(at) = open
                 .iter()
-                .position(|c| !owing(c) && c.waiting())
+                .position(|c| !owing(&c.open) && c.open.waiting())
                 .map_or_else(|| waiting.spoken(&mut open, &mut opened), |at| Ok(Some(at)))?
             else {
                 continue;
             };
-            match exchange(&mut open[at]) {
+            match exchange(&mut open[at].open) {
                 Ok(Turn::Taken(taken)) => {
                     // The one served goes to the back: the next wait
                     // favors the others, and the one let go when too
@@ -232,20 +223,22 @@ impl<C: Open> Serving<C> {
                 Ok(Turn::Closed) => {
                     open.remove(at);
                 }
-                Err(error) => {
-                    open.remove(at);
-                    return Err(error);
+                // The caller's own failure: its connection, not the wait.
+                Err(why) => {
+                    let gone = open.remove(at);
+                    self.turned.locked().away(gone.peer, why);
                 }
             }
         }
     }
 }
 
-/// One receive's wait: the listener, what a freed connection tells, and
-/// how long the receive may wait.
+/// One receive's wait: the listener, what a freed connection tells, where
+/// a caller turned away is kept, and how long the receive may wait.
 struct Waiting<'a> {
     listener: &'a TcpListener,
     freed: &'a Freed,
+    turned: &'a Mutex<Turned>,
     deadline: Option<Instant>,
     timeout: Option<Duration>,
 }
@@ -256,10 +249,11 @@ impl Waiting<'_> {
     /// kept whenever the listener is ready, so busy connections never keep
     /// one waiting; the one quiet longest is let go where too many are
     /// kept. A connection freed meanwhile ends the wait with none, so the
-    /// next waits on it too.
+    /// next waits on it too. A new peer whose connection could not be
+    /// readied or opened is turned away.
     fn spoken<C: Open>(
         &self,
-        open: &mut Vec<C>,
+        open: &mut Vec<Connection<C>>,
         opened: &mut impl FnMut(TcpStream, SocketAddr) -> Result<C>,
     ) -> Result<Option<usize>> {
         let left = self
@@ -274,26 +268,34 @@ impl Waiting<'_> {
         }
         let mut spoke = ready.open.iter().position(|spoke| *spoke);
         if ready.listener {
-            let (stream, peer) = socket::accept_tcp(self.listener, self.timeout)?;
-            if open.len() == MOST_KEPT {
-                open.remove(0);
-                spoke = spoke.and_then(|at| at.checked_sub(1));
+            let nobody = socket::NOTHING_CONNECTED;
+            let (stream, peer) = socket::accept_within(self.listener, self.timeout, nobody)?;
+            match socket::accepted(&stream, self.timeout).and_then(|()| opened(stream, peer)) {
+                Ok(made) => {
+                    if open.len() == MOST_KEPT {
+                        open.remove(0);
+                        spoke = spoke.and_then(|at| at.checked_sub(1));
+                    }
+                    open.push(Connection { open: made, peer });
+                }
+                Err(why) => self.turned.locked().away(peer, why),
             }
-            open.push(opened(stream, peer)?);
         }
         Ok(spoke)
     }
 
     /// Which of the listener, the freed connections' word and the open
     /// connections is ready.
-    fn wait<C: Open>(&self, open: &[C], within: Option<Duration>) -> Result<Ready> {
+    fn wait<C: Open>(&self, open: &[Connection<C>], within: Option<Duration>) -> Result<Ready> {
         // A busy connection is not waited on: it answers nothing until its
         // exchange is, so it is reported quiet.
-        let idle: Vec<usize> = (0..open.len()).filter(|&at| !owing(&open[at])).collect();
+        let idle: Vec<usize> = (0..open.len())
+            .filter(|&at| !owing(&open[at].open))
+            .collect();
         let mut sources = Vec::with_capacity(idle.len() + 2);
         sources.push(self.listener.as_fd());
-        sources.push(self.freed.socket.as_fd());
-        sources.extend(idle.iter().map(|&at| open[at].socket().as_fd()));
+        sources.push(self.freed.socket().as_fd());
+        sources.extend(idle.iter().map(|&at| open[at].open.socket().as_fd()));
         loop {
             match socket::ready(&sources, within) {
                 Ok(said) => {
@@ -352,7 +354,74 @@ impl<C> std::fmt::Debug for Serving<C> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lines::{Peer, next, serving, waited};
+    use crate::lines::{Lines, Peer, WAIT, line, next, opened, serving, waited};
+
+    #[test]
+    fn a_caller_whose_turn_fails_is_turned_away_and_the_next_is_served() {
+        let (serving, address) = serving();
+        let mut broken = Peer::to(&address);
+        let from = broken.calling_from();
+        // Not UTF-8: no line, and the same next time. Until 2026-11-13 the
+        // receive failed with it, and the runtime stopped the Location.
+        broken.send(&[0xff, b'\n']);
+        // The good caller calls once the broken one was let go, so the
+        // broken turn is the first the receive takes.
+        let after = address.clone();
+        let callers = std::thread::spawn(move || {
+            let let_go = broken.heard();
+            let mut good = Peer::to(&after);
+            good.say("fine");
+            (let_go, good.heard())
+        });
+        let (said, _) = next(&serving).expect("the next caller served");
+        assert_eq!(said, "fine");
+        assert_eq!(
+            callers.join().expect("callers"),
+            (String::new(), "ok\n".to_string())
+        );
+        let turned = serving.turned_away();
+        assert_eq!(turned.callers.len(), 1, "{turned:?}");
+        assert_eq!(turned.callers[0].peer, from);
+        assert!(!turned.callers[0].why.retryable, "{turned:?}");
+        assert_eq!(serving.open(), 1, "the good caller kept");
+        assert!(serving.turned_away().is_empty(), "taken once");
+    }
+
+    #[test]
+    fn a_caller_whose_connection_cannot_be_opened_is_turned_away() {
+        let (serving, address) = serving();
+        let refused = Peer::to(&address);
+        let from = refused.calling_from();
+        let mut good = Peer::to(&address);
+        good.say("fine");
+        let mut first = true;
+        let refusing = |stream: TcpStream, peer: SocketAddr| -> Result<Lines> {
+            if std::mem::take(&mut first) {
+                return Err(TransportError::permanent("refused at the door"));
+            }
+            opened(stream, peer)
+        };
+        let unbound = || -> Result<(TcpListener, String)> { panic!("bound twice") };
+        let (said, _) = serving
+            .next(unbound, WAIT, refusing, line)
+            .expect("the next caller served");
+        assert_eq!(said, "fine");
+        let turned = serving.turned_away();
+        assert_eq!(turned.callers.len(), 1, "{turned:?}");
+        assert_eq!(turned.callers[0].peer, from);
+        drop(refused);
+    }
+
+    #[test]
+    fn a_listener_that_cannot_bind_fails_the_receive() {
+        let serving = Serving::<Lines>::new();
+        let unbindable = || Err(TransportError::permanent("not this machine's address"));
+        let error = serving
+            .next(unbindable, WAIT, opened, line)
+            .expect_err("no listener");
+        assert!(!error.retryable, "{error}");
+        assert_eq!(error.message, "not this machine's address");
+    }
 
     #[test]
     fn one_connection_carries_many_exchanges_one_per_receive() {

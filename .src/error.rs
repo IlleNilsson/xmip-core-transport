@@ -24,16 +24,23 @@ pub type Result<T> = std::result::Result<T, TransportError>;
 pub fn classify(context: &str, error: &io::Error) -> TransportError {
     TransportError {
         message: format!("{context}: {}", said(error)),
-        retryable: passes(error.kind()),
+        retryable: passes(error.kind()) || exhausted(error),
     }
 }
 
 /// Whether a failure of this kind may pass on a second attempt: a blip, a
-/// timeout, a reset, a refusal, a port not yet free.
+/// timeout, a reset, a refusal, a port not yet free, a peer gone — its
+/// pipe broken, its socket no longer connected.
+///
+/// A peer gone is retryable from 2026-11-13: an answer written on the
+/// connection of a caller that hung up before its verdict failed with a
+/// broken pipe (EPIPE after the peer's reset, `WSAESHUTDOWN`) or not
+/// connected, and as a permanent failure it stopped the Receive Location
+/// for every other caller, where the caller only sends again.
 const fn passes(kind: io::ErrorKind) -> bool {
     use io::ErrorKind::{
-        AddrInUse, AddrNotAvailable, ConnectionAborted, ConnectionRefused, ConnectionReset,
-        Interrupted, TimedOut, WouldBlock,
+        AddrInUse, AddrNotAvailable, BrokenPipe, ConnectionAborted, ConnectionRefused,
+        ConnectionReset, Interrupted, NotConnected, TimedOut, WouldBlock,
     };
 
     matches!(
@@ -44,9 +51,30 @@ const fn passes(kind: io::ErrorKind) -> bool {
             | ConnectionReset
             | ConnectionAborted
             | ConnectionRefused
+            | BrokenPipe
+            | NotConnected
             | AddrInUse
             | AddrNotAvailable
     )
+}
+
+/// Whether the operating system ran out of what a socket takes — the
+/// process's descriptors (`EMFILE`, `WSAEMFILE`), the system's (`ENFILE`),
+/// its network buffers (`ENOBUFS`, `WSAENOBUFS`). They come back as other
+/// sockets close, so asking again may pass; std names no kind for them, so
+/// they are read by their number. Until 2026-11-13 they were permanent, and
+/// one accept that met them stopped the Receive Location for good.
+fn exhausted(error: &io::Error) -> bool {
+    use rustix::io::Errno;
+
+    let Some(errno) = Errno::from_io_error(error) else {
+        return false;
+    };
+    #[cfg(not(windows))]
+    if errno == Errno::NFILE {
+        return true;
+    }
+    errno == Errno::MFILE || errno == Errno::NOBUFS
 }
 
 /// What an operating system said, in the estate's words where its own are
@@ -153,6 +181,44 @@ mod tests {
     #[test]
     fn a_refused_connection_is_retryable() {
         assert!(classify("connecting", &io_error(io::ErrorKind::ConnectionRefused)).retryable);
+    }
+
+    #[test]
+    fn a_peer_gone_before_its_answer_is_retryable() {
+        // Permanent until 2026-11-13: the answer to a caller that hung up
+        // before its verdict stopped the Receive Location for every other caller.
+        for kind in [io::ErrorKind::BrokenPipe, io::ErrorKind::NotConnected] {
+            assert!(
+                classify("writing the answer", &io_error(kind)).retryable,
+                "{kind}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_socket_written_after_its_peer_hung_up_fails_retryable() {
+        let (listener, address) = crate::socket::bind_tcp("127.0.0.1:0").expect("bound");
+        let peer = std::net::TcpStream::connect(&address).expect("connected");
+        let (this, _) = listener.accept().expect("accepted");
+        drop(peer);
+        // The first write may land before the peer's reset; one after it,
+        // or after this side shut its writing, fails as a peer gone.
+        this.shutdown(std::net::Shutdown::Write).expect("shut");
+        let written = io::Write::write_all(&mut &this, b"the verdict")
+            .map_err(|e| classify("writing the answer", &e));
+        let failed = written.expect_err("its writing was shut");
+        assert!(failed.retryable, "{failed}");
+    }
+
+    #[test]
+    fn a_machine_out_of_descriptors_or_buffers_is_retryable() {
+        use rustix::io::Errno;
+        for errno in [Errno::MFILE, Errno::NOBUFS] {
+            let met = io::Error::from_raw_os_error(errno.raw_os_error());
+            assert!(classify("accepting a connection", &met).retryable, "{met}");
+        }
+        let other = io::Error::from_raw_os_error(Errno::ACCESS.raw_os_error());
+        assert!(!classify("binding", &other).retryable, "{other}");
     }
 
     #[test]

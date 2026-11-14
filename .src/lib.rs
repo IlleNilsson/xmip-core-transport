@@ -70,7 +70,11 @@
 //! the near ends         what a Receive Location keeps between its receives
 //!   kept.rs             a listener or socket bound on the first receive and kept
 //!   serving.rs          a kept listener and the connections its peers keep open on
-//!                       it, the next exchange taken from whichever speaks first
+//!                       it, the next exchange taken from whichever speaks first; a
+//!                       caller whose own connection fails turned away, never the
+//!                       Location stopped
+//!   turned.rs           the callers turned away until the runtime asks, which
+//!                       audits each as a refusal of that caller
 //!
 //! shared machinery      what two technologies both need lives here (ADR-0044)
 //!   socket.rs           binding, accepting (waiting on readiness), connecting and
@@ -87,7 +91,12 @@
 //!                       declared payload column: binary, or text in its Unicode form, written
 //!                       and read in the dialect `xmip-core-library-sql` names
 //!     accept.rs         the rows a query read as arrivals, and the `accept` statement that
-//!                       consumes each after its cycle, the row's name bound in
+//!                       consumes each after its cycle, the row's name bound in; the stamp
+//!                       a refused row is remembered by
+//!     sql_transport.rs  the one SQL transport, `SqlTransport`, over a technology's wire;
+//!                       built from its settings and both ends of a loopback (sql_transport/)
+//!     wire.rs           what a SQL technology is to it: its dialect, client and far end
+//!     declared.rs       the settings every SQL Location declares, and the default query
 //!
 //! The byte cursor and writer, hex, the CRCs and the varint every binary
 //! technology frames with are encoding primitives, not transport: they live in
@@ -163,6 +172,7 @@ pub mod standing;
 pub mod stuffed;
 pub mod taken;
 pub mod together;
+pub mod turned;
 #[cfg(any(test, feature = "test-support"))]
 pub mod unread;
 pub mod waiting;
@@ -190,6 +200,7 @@ pub use refused::Refused;
 pub use secured::Secured;
 pub use sending::Sending;
 pub use taken::Taken;
+pub use turned::{Turned, TurnedAway};
 pub use waiting::{Notice, Waiting};
 
 /// What one TCP segment carries over Ethernet: its 1500-byte MTU less the

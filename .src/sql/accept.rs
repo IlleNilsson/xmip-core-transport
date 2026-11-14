@@ -64,9 +64,19 @@ pub fn accepting(
 }
 
 /// The rows a SQL Location refused and left: each by its name, the query's
-/// first column, with a hash of its body. A row with no name is never
-/// remembered.
+/// first column, with a hash of its body ([`stamp`]). A row with no name is
+/// never remembered.
 pub type RefusedRows = Refused<Option<String>, u64>;
+
+/// What a refused row's body is remembered by: its hash, so a row whose
+/// body changed is a new arrival. One rule for every SQL technology, the
+/// `SQLite` queue's included; until 2026-11-13 that one hashed its own.
+#[must_use]
+pub fn stamp(body: &[u8]) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    body.hash(&mut hasher);
+    hasher.finish()
+}
 
 /// At most `most` of the rows a query read, each one Stream, whole, but those
 /// `refused` holds as they lie — the rest left in their table, unaccepted, for a
@@ -95,9 +105,7 @@ pub fn arrivals<V>(
             Some(value) => bytes(value)?,
             None => Vec::new(),
         };
-        let mut hasher = DefaultHasher::new();
-        body.hash(&mut hasher);
-        read.push((index, named, hasher.finish(), body));
+        read.push((index, named, stamp(&body), body));
     }
     let read = refused.sift(
         read,

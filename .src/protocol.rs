@@ -7,6 +7,7 @@ use crate::direction::Directions;
 use crate::error::Result;
 use crate::outgoing::Outgoing;
 use crate::sending::Sending;
+use crate::turned::Turned;
 use crate::waiting::{Notice, Waiting};
 
 /// What every protocol implements.
@@ -58,6 +59,18 @@ pub trait Transport {
     /// As [`Transport::receive_up_to`].
     fn receive(&self) -> Result<Vec<Arrived>> {
         self.receive_up_to(usize::MAX)
+    }
+
+    /// The callers this technology's receives turned away since it was last
+    /// asked, taken: each let go at its own connection for what that
+    /// connection did — a head past its bound, bytes that are not the
+    /// protocol, a read past the Location's timeout — while the receive went on for
+    /// the others ([`crate::serving`]). A caller's failure is never the
+    /// receive's, so it never stops a Location; the runtime asks after
+    /// every receive and audits each as a refusal of that caller. Nobody,
+    /// where the technology keeps no callers' connections.
+    fn turned_away(&self) -> Turned {
+        Turned::default()
     }
 
     /// Whether this technology's arrivals are told in order, before the

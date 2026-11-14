@@ -135,11 +135,26 @@ impl Peer {
     ///
     /// Where it cannot be written.
     pub fn say(&mut self, line: &str) {
-        let written = format!("{line}\n");
-        self.reader
-            .get_mut()
-            .write_all(written.as_bytes())
-            .expect("say");
+        self.send(format!("{line}\n").as_bytes());
+    }
+
+    /// `bytes` sent as they are, a line or not.
+    ///
+    /// # Panics
+    ///
+    /// Where they cannot be written.
+    pub fn send(&mut self, bytes: &[u8]) {
+        self.reader.get_mut().write_all(bytes).expect("send");
+    }
+
+    /// Where it calls from: the peer the listener accepted.
+    ///
+    /// # Panics
+    ///
+    /// Where the socket cannot say.
+    #[must_use]
+    pub fn calling_from(&self) -> SocketAddr {
+        self.reader.get_ref().local_addr().expect("its address")
     }
 
     /// The next line heard; empty where the connection was let go.
