@@ -72,7 +72,11 @@
 //!   serving.rs          a kept listener and the connections its peers keep open on
 //!                       it, the next exchange taken from whichever speaks first; a
 //!                       caller whose own connection fails turned away, never the
-//!                       Location stopped
+//!                       Location stopped (serving/)
+//!     wait.rs           one receive's readiness wait over the listener and the kept
+//!                       connections, a new peer accepted and kept
+//!   deadline.rs         a connection served there, every read of one caller's turn
+//!                       given only what is left of it, a turn past it cut
 //!   turned.rs           the callers turned away until the runtime asks, which
 //!                       audits each as a refusal of that caller
 //!
@@ -134,6 +138,7 @@ pub mod claim;
 pub mod concurrent;
 pub mod configured;
 pub mod contiguous;
+pub mod deadline;
 pub mod destination;
 pub mod direction;
 #[cfg(any(test, feature = "test-support"))]

@@ -28,24 +28,42 @@
 //! away ([`crate::turned`]) for the runtime to audit, and the wait goes on
 //! for the others. Only the listener's own failure — its bind, its wait,
 //! its accept — is the receive's.
+//!
+//! **A turn is bounded whole** (2026-11-14). Every connection is handed to
+//! its technology as a [`Within`], and each turn on it is given a deadline
+//! of [`Serving::turn`] from when it began — [`TURN`] by default, the
+//! node's `[tuning] receive_turn` — every read of it waiting only what is
+//! left ([`crate::deadline`]). A caller that stops mid-exchange, or sends a
+//! byte inside each read's wait, is turned away at the deadline and the
+//! others are served; until then it held them all.
+//!
+//! The wait itself — one readiness wait over the listener and every kept
+//! connection, a new peer accepted and kept — is `serving/wait.rs`'s.
+
+mod wait;
 
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::{Mutex, OnceLock};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use xcore::lock::Locked;
 
-use rustix::fd::AsFd;
-
 use crate::answer::{Busy, Freed};
-use crate::error::{Result, TransportError, classify};
+use crate::deadline::{Deadline, Within};
+use crate::error::Result;
 use crate::kept::Kept;
-use crate::socket;
 use crate::turned::Turned;
+use wait::Wait;
 
 /// The most connections kept open at once. One more accepted lets the one
 /// kept longest go, so a crowd of idle peers costs a bounded number of
 /// sockets; a peer let go connects again.
 const MOST_KEPT: usize = 64;
+
+/// The most one caller's turn takes, where the node's `[tuning]
+/// receive_turn` does not say: a minute, enough for `net::MAX_BODY`, 64 MiB,
+/// at about ten megabits a second — the assistant's drafting of 2026-11-10;
+/// the span is the owner's to set.
+pub const TURN: Duration = Duration::from_secs(60);
 
 /// A connection a peer keeps open between exchanges.
 pub trait Open: Send {
@@ -91,11 +109,13 @@ pub enum Turn<T> {
     Closed,
 }
 
-/// A connection kept open, and the peer it was accepted from: the caller
-/// turned away where its own turn fails.
+/// A connection kept open, the peer it was accepted from — the caller
+/// turned away where its own turn fails — and the deadline its reads are
+/// given each turn.
 struct Connection<C> {
     open: C,
     peer: SocketAddr,
+    deadline: Deadline,
 }
 
 /// A kept listener and the connections kept open on it.
@@ -106,10 +126,12 @@ pub struct Serving<C> {
     freed: OnceLock<Freed>,
     /// The callers turned away since the runtime last asked.
     turned: Mutex<Turned>,
+    /// The most one caller's turn takes.
+    turn: Duration,
 }
 
 impl<C: Open> Serving<C> {
-    /// Nothing bound, nothing open.
+    /// Nothing bound, nothing open, each turn taking at most [`TURN`].
     #[must_use]
     pub const fn new() -> Self {
         Self {
@@ -117,7 +139,23 @@ impl<C: Open> Serving<C> {
             open: Mutex::new(Vec::new()),
             freed: OnceLock::new(),
             turned: Mutex::new(Turned::new()),
+            turn: TURN,
         }
+    }
+
+    /// Each caller's turn taking at most `turn`, every read of it waiting
+    /// only what is left: the node's `[tuning] receive_turn`, handed in as
+    /// the runtime builds the transport (`Configured::turning_within`).
+    #[must_use]
+    pub const fn turning_within(mut self, turn: Duration) -> Self {
+        self.turn = turn;
+        self
+    }
+
+    /// The most one caller's turn takes.
+    #[must_use]
+    pub const fn turn(&self) -> Duration {
+        self.turn
     }
 
     /// The callers turned away since this was last asked, taken: what a
@@ -162,12 +200,14 @@ impl<C: Open> Serving<C> {
     /// The next exchange, from whichever peer sends first within `timeout`
     /// (`None` waits as long as it takes, which is what a listening Receive
     /// Location does): the listener bound by `bind` where it is not yet, a
-    /// new peer made a connection by `opened` and kept, and a turn taken on
-    /// a connection by `exchange`. A connection's timeout on its reads is
-    /// `timeout` too, so a peer that stops mid-exchange is let go. A peer
-    /// whose connection could not be readied or opened, or whose turn
-    /// failed, is let go and turned away ([`Serving::turned_away`]), and
-    /// the wait goes on.
+    /// new peer made a connection by `opened` from the [`Within`] its
+    /// reads go through, and kept, and a turn taken on a connection by
+    /// `exchange`. A connection's timeout on each read is `timeout` too,
+    /// and a turn's reads together take at most [`Serving::turn`], so a
+    /// peer that stops mid-exchange, or dribbles, is let go. A peer whose
+    /// connection could not be readied or opened, or whose turn failed, is
+    /// let go and turned away ([`Serving::turned_away`]), and the wait goes
+    /// on.
     ///
     /// # Errors
     /// Where the listener could not be bound, waited on or accepted from,
@@ -176,7 +216,7 @@ impl<C: Open> Serving<C> {
         &self,
         bind: impl FnOnce() -> Result<(TcpListener, String)>,
         timeout: Option<Duration>,
-        mut opened: impl FnMut(TcpStream, SocketAddr) -> Result<C>,
+        mut opened: impl FnMut(Within, SocketAddr) -> Result<C>,
         mut exchange: impl FnMut(&mut C) -> Result<Turn<T>>,
     ) -> Result<T> {
         let listener = self.listener.bound(bind)?;
@@ -189,14 +229,7 @@ impl<C: Open> Serving<C> {
             Ok(made)
         };
         let mut open = self.open.locked();
-        let deadline = timeout.map(|timeout| Instant::now() + timeout);
-        let waiting = Waiting {
-            listener,
-            freed,
-            turned: &self.turned,
-            deadline,
-            timeout,
-        };
+        let waiting = Wait::new(listener, freed, &self.turned, timeout);
         loop {
             // What is already read goes first: no socket will say so.
             let Some(at) = open
@@ -206,7 +239,11 @@ impl<C: Open> Serving<C> {
             else {
                 continue;
             };
-            match exchange(&mut open[at].open) {
+            let connection = &mut open[at];
+            connection.deadline.begin(self.turn, timeout);
+            let turned = exchange(&mut connection.open);
+            connection.deadline.end();
+            match turned {
                 Ok(Turn::Taken(taken)) => {
                     // The one served goes to the back: the next wait
                     // favors the others, and the one let go when too
@@ -233,102 +270,6 @@ impl<C: Open> Serving<C> {
     }
 }
 
-/// One receive's wait: the listener, what a freed connection tells, where
-/// a caller turned away is kept, and how long the receive may wait.
-struct Waiting<'a> {
-    listener: &'a TcpListener,
-    freed: &'a Freed,
-    turned: &'a Mutex<Turned>,
-    deadline: Option<Instant>,
-    timeout: Option<Duration>,
-}
-
-impl Waiting<'_> {
-    /// Wait until the deadline for the listener or an open connection: the
-    /// first connection that spoke, if one did. A new peer is accepted and
-    /// kept whenever the listener is ready, so busy connections never keep
-    /// one waiting; the one quiet longest is let go where too many are
-    /// kept. A connection freed meanwhile ends the wait with none, so the
-    /// next waits on it too. A new peer whose connection could not be
-    /// readied or opened is turned away.
-    fn spoken<C: Open>(
-        &self,
-        open: &mut Vec<Connection<C>>,
-        opened: &mut impl FnMut(TcpStream, SocketAddr) -> Result<C>,
-    ) -> Result<Option<usize>> {
-        let left = self
-            .deadline
-            .map(|at| at.saturating_duration_since(Instant::now()));
-        if left.is_some_and(|left| left.is_zero()) {
-            return Err(nothing_within(self.timeout));
-        }
-        let ready = self.wait(open, left)?;
-        if ready.freed {
-            self.freed.heard();
-        }
-        let mut spoke = ready.open.iter().position(|spoke| *spoke);
-        if ready.listener {
-            let nobody = socket::NOTHING_CONNECTED;
-            let (stream, peer) = socket::accept_within(self.listener, self.timeout, nobody)?;
-            match socket::accepted(&stream, self.timeout).and_then(|()| opened(stream, peer)) {
-                Ok(made) => {
-                    if open.len() == MOST_KEPT {
-                        open.remove(0);
-                        spoke = spoke.and_then(|at| at.checked_sub(1));
-                    }
-                    open.push(Connection { open: made, peer });
-                }
-                Err(why) => self.turned.locked().away(peer, why),
-            }
-        }
-        Ok(spoke)
-    }
-
-    /// Which of the listener, the freed connections' word and the open
-    /// connections is ready.
-    fn wait<C: Open>(&self, open: &[Connection<C>], within: Option<Duration>) -> Result<Ready> {
-        // A busy connection is not waited on: it answers nothing until its
-        // exchange is, so it is reported quiet.
-        let idle: Vec<usize> = (0..open.len())
-            .filter(|&at| !owing(&open[at].open))
-            .collect();
-        let mut sources = Vec::with_capacity(idle.len() + 2);
-        sources.push(self.listener.as_fd());
-        sources.push(self.freed.socket().as_fd());
-        sources.extend(idle.iter().map(|&at| open[at].open.socket().as_fd()));
-        loop {
-            match socket::ready(&sources, within) {
-                Ok(said) => {
-                    let mut ready = Ready {
-                        listener: said[0],
-                        freed: said[1],
-                        open: vec![false; open.len()],
-                    };
-                    for (&at, &spoke) in idle.iter().zip(&said[2..]) {
-                        ready.open[at] = spoke;
-                    }
-                    return Ok(ready);
-                }
-                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
-                Err(error) => return Err(classify("waiting for a peer", &error)),
-            }
-        }
-    }
-}
-
-/// What one wait found ready.
-struct Ready {
-    listener: bool,
-    freed: bool,
-    open: Vec<bool>,
-}
-
-fn nothing_within(timeout: Option<Duration>) -> TransportError {
-    let within = timeout.unwrap_or_default().as_millis();
-    TransportError::retryable(format!("nothing arrived within {within} ms"))
-        .at("waiting for a peer")
-}
-
 impl<C: Open> Default for Serving<C> {
     fn default() -> Self {
         Self::new()
@@ -336,10 +277,11 @@ impl<C: Open> Default for Serving<C> {
 }
 
 /// A copy of a transport binds and keeps its own, as [`Kept`] does.
-/// Its connections are its own too, so what tells them freed is.
+/// Its connections are its own too, so what tells them freed is; its
+/// turns are as long.
 impl<C: Open> Clone for Serving<C> {
     fn clone(&self) -> Self {
-        Self::new()
+        Self::new().turning_within(self.turn)
     }
 }
 
@@ -354,7 +296,9 @@ impl<C> std::fmt::Debug for Serving<C> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::error::TransportError;
     use crate::lines::{Lines, Peer, WAIT, line, next, opened, serving, waited};
+    use std::time::Instant;
 
     #[test]
     fn a_caller_whose_turn_fails_is_turned_away_and_the_next_is_served() {
@@ -395,7 +339,7 @@ mod tests {
         let mut good = Peer::to(&address);
         good.say("fine");
         let mut first = true;
-        let refusing = |stream: TcpStream, peer: SocketAddr| -> Result<Lines> {
+        let refusing = |stream: Within, peer: SocketAddr| -> Result<Lines> {
             if std::mem::take(&mut first) {
                 return Err(TransportError::permanent("refused at the door"));
             }
@@ -500,6 +444,69 @@ mod tests {
         assert_eq!(first.heard(), "ok\n");
         assert_eq!(first.heard(), "", "let go: the first spoke longest ago");
         drop(quiet);
+    }
+
+    /// A peer of `address` that says the first byte of `line`, then one
+    /// more every twenty milliseconds, each inside a read's wait: the peer
+    /// once all is said, none where it was let go first.
+    fn dribbling(
+        address: &str,
+        line: &'static [u8],
+    ) -> (SocketAddr, std::thread::JoinHandle<Option<Peer>>) {
+        let mut peer = Peer::to(address);
+        let from = peer.calling_from();
+        peer.send(&line[..1]);
+        let dribbled = std::thread::spawn(move || {
+            for byte in &line[1..] {
+                std::thread::sleep(Duration::from_millis(20));
+                peer.sending(&[*byte]).ok()?;
+            }
+            Some(peer)
+        });
+        (from, dribbled)
+    }
+
+    #[test]
+    fn a_caller_that_stops_partway_is_cut_at_its_turn_and_the_next_is_served() {
+        // A hundred bytes twenty milliseconds apart, each inside the
+        // Location's two-second wait on a read: two seconds of one turn.
+        // Until 2026-11-14 it held every other caller that long.
+        let turn = Duration::from_millis(200);
+        let (serving, address) = serving();
+        let serving = serving.turning_within(turn);
+        let (from, dribbled) = dribbling(&address, &[b'h'; 100]);
+        let mut next_caller = Peer::to(&address);
+        next_caller.say("fine");
+        let began = Instant::now();
+        let (said, _) = next(&serving).expect("the next caller served");
+        let took = began.elapsed();
+        assert_eq!(said, "fine");
+        assert!(
+            took >= turn,
+            "served after {took:?}, inside the other's turn"
+        );
+        assert!(took < Duration::from_millis(1500), "served after {took:?}");
+        let turned = serving.turned_away();
+        assert_eq!(turned.callers.len(), 1, "{turned:?}");
+        assert_eq!(turned.callers[0].peer, from);
+        assert!(turned.callers[0].why.message.contains("turn"), "{turned:?}");
+        drop(dribbled.join().expect("the dribbling caller"));
+    }
+
+    #[test]
+    fn a_caller_sending_steadily_within_its_turn_is_served() {
+        let (serving, address) = serving();
+        let serving = serving.turning_within(Duration::from_secs(2));
+        let (from, dribbled) = dribbling(&address, b"steady\n");
+        let (said, peer) = next(&serving).expect("served whole");
+        assert_eq!((said.as_str(), peer), ("steady", from));
+        assert!(serving.turned_away().is_empty());
+        let mut steady = dribbled
+            .join()
+            .expect("the steady caller")
+            .expect("all said");
+        assert_eq!(steady.heard(), "ok\n");
+        assert_eq!(serving.clone().turn(), Duration::from_secs(2), "kept");
     }
 
     #[test]

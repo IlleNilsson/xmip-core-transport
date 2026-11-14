@@ -29,8 +29,8 @@
 use std::collections::BTreeSet;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard};
-use std::time::{SystemTime, UNIX_EPOCH};
 use xcore::lock::Locked;
+use xcore::{Clock, SystemClock};
 
 use crate::error::Result;
 
@@ -77,9 +77,7 @@ impl Claimant {
     #[must_use]
     pub fn sending(&self, target: &str) -> Unfinished {
         let count = SENDS.fetch_add(1, Ordering::Relaxed);
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(0, |since| since.as_nanos());
+        let nanos = SystemClock.unix_timestamp_nanos().max(0);
         let name = format!("{target}{SENDING}{}.{count}.{nanos}", self.as_str());
         in_flight().insert(name.clone());
         Unfinished(name)

@@ -135,14 +135,11 @@ impl Kept {
         Secured::new(SecretName::new(name).expect("a secret name"), secrets)
     }
 
-    /// A value drawn for a test, never one written down.
+    /// A value drawn for a test, never one written down: from the
+    /// operating system's random source (`codec::random`), never the clock.
     #[must_use]
     pub fn drawn() -> String {
-        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH);
-        format!(
-            "drawn-{:x}",
-            now.map(|since| since.as_nanos()).unwrap_or_default()
-        )
+        format!("drawn-{}", codec::hex::encode(&codec::random::array::<8>()))
     }
 }
 
