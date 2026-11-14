@@ -1,8 +1,11 @@
-//! What every SQL transport shares: where a send target puts its row; the
-//! one fixed table a session answers `SELECT` from; and what the payload
-//! column holds, as a Location declares it. What a receive does with the
-//! rows its query read — each an arrival, consumed by the Location's
-//! `accept` statement after its cycle — is [`accept`].
+//! What every SQL transport shares: the transport itself,
+//! [`SqlTransport`], over each technology's [`Wire`] — its dialect, its
+//! client and its far end — and the settings every SQL Location declares
+//! ([`declared`]); where a send target puts its row; the one fixed table a
+//! session answers `SELECT` from; and what the payload column holds, as a
+//! Location declares it. What a receive does with the rows its query read
+//! — each an arrival, consumed by the Location's `accept` statement after
+//! its cycle — is [`accept`].
 //!
 //! SQL itself — the dialect, the INSERT written and taken apart, a
 //! literal, a statement's verb — is `xmip-core-library-sql`'s, one copy
@@ -25,6 +28,15 @@ use crate::error::{Result, TransportError};
 use crate::taken::Taken;
 
 pub mod accept;
+pub mod declared;
+pub mod sql_transport;
+pub mod wire;
+
+#[cfg(feature = "tls")]
+pub use declared::client_tls;
+pub use declared::{DATABASE, DEFAULT_QUERY, QUERY, TIMEOUT, TLS, TLS_NAME, USER};
+pub use sql_transport::SqlTransport;
+pub use wire::{Probe, Wire};
 
 /// The setting that says what the payload column holds.
 pub const COLUMN: Setting = Setting {

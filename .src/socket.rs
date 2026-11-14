@@ -47,14 +47,28 @@ pub fn accept_tcp(
     listener: &TcpListener,
     timeout: Option<Duration>,
 ) -> Result<(TcpStream, SocketAddr)> {
-    let (stream, peer) = accept_within(listener, timeout, "nothing connected")?;
-    settle(&stream, timeout)?;
+    let (stream, peer) = accept_within(listener, timeout, NOTHING_CONNECTED)?;
+    accepted(&stream, timeout)?;
+    Ok((stream, peer))
+}
+
+/// What [`accept_tcp`] says did not happen within its timeout.
+pub(crate) const NOTHING_CONNECTED: &str = "nothing connected";
+
+/// Ready a connection just accepted: `timeout` on its reads and Nagle's
+/// algorithm off, as [`accept_tcp`] hands one back. Apart from the accept,
+/// so a listener that keeps many tells a failure of the peer's connection
+/// from one of its own (`crate::serving`).
+///
+/// # Errors
+/// Where the connection refused an option: a peer that already hung up.
+pub fn accepted(stream: &TcpStream, timeout: Option<Duration>) -> Result<()> {
+    settle(stream, timeout)?;
     // An answer written as a head and then a body goes at once, as
     // `net::connect` has a request go, not after the delayed acknowledgement.
     stream
         .set_nodelay(true)
-        .map_err(|e| classify("setting the connection's delay", &e))?;
-    Ok((stream, peer))
+        .map_err(|e| classify("setting the connection's delay", &e))
 }
 
 /// A listener whose accept [`accept_within`] can bound: a TCP listener or a

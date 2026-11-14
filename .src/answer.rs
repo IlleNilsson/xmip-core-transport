@@ -16,12 +16,54 @@
 
 use std::fmt;
 use std::io::Write;
-use std::net::{Shutdown, TcpStream, ToSocketAddrs, UdpSocket};
+use std::net::{Shutdown, SocketAddr, TcpStream, ToSocketAddrs, UdpSocket};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 
-use crate::error::{Result, classify};
-use crate::serving::Freed;
+use crate::error::{Result, TransportError, classify};
+
+/// What an answer tells the wait for a Receive Location's peers once it
+/// frees its connection (`crate::serving`): a datagram to a socket of the
+/// wait's own on loopback, watched beside the listener and the idle
+/// connections. A datagram, so telling leaves nothing waiting to close.
+#[derive(Clone, Debug)]
+pub struct Freed {
+    socket: Arc<UdpSocket>,
+    at: SocketAddr,
+}
+
+impl Freed {
+    pub(crate) fn new() -> Result<Self> {
+        let socket = UdpSocket::bind("127.0.0.1:0")
+            .and_then(|socket| socket.set_nonblocking(true).map(|()| socket))
+            .map_err(|e| classify("binding the wait's own socket", &e))?;
+        let at = socket
+            .local_addr()
+            .map_err(|e| classify("reading the wait's own socket", &e))?;
+        Ok(Self {
+            socket: Arc::new(socket),
+            at,
+        })
+    }
+
+    /// The socket the wait watches.
+    pub(crate) fn socket(&self) -> &UdpSocket {
+        &self.socket
+    }
+
+    /// A connection is free: the wait, if one runs, takes it in again. A
+    /// datagram that finds the socket's buffer full is not needed, the
+    /// wait being told already.
+    pub(crate) fn tell(&self) {
+        drop(self.socket.send_to(&[0], self.at));
+    }
+
+    /// Everything told so far read off, so the next wait waits.
+    pub(crate) fn heard(&self) {
+        let mut told = [0u8; 1];
+        while self.socket.recv_from(&mut told).is_ok() {}
+    }
+}
 
 /// Whether a connection waits on this side: a request taken from it whose
 /// [`Answer`] is not given yet. Shared by the connection and its answer,
@@ -121,11 +163,18 @@ impl Answer {
     /// frames an answer; the connection is free after it, written or not.
     ///
     /// # Errors
-    /// As `write`.
+    /// As `write`, always retryable: an answer not given is its caller's —
+    /// one that hung up or reset its stream before its verdict — and the
+    /// caller, not told, sends again. A telling that fails retryable never
+    /// stops the Receive Location for its other callers (ADR-0018,
+    /// amendment 2026-11-13).
     pub fn with<T>(mut self, write: impl FnOnce(&mut TcpStream) -> Result<T>) -> Result<T> {
         let written = write(&mut self.connection);
         self.free();
-        written
+        written.map_err(|failed| TransportError {
+            retryable: true,
+            ..failed
+        })
     }
 
     /// Close the connection unanswered, where that is the protocol's
@@ -268,6 +317,20 @@ mod tests {
             .expect_err("failed");
         assert_eq!(error.message, "too long");
         assert!(!busy.is_busy());
+    }
+
+    #[test]
+    fn an_answer_that_could_not_be_given_is_its_callers_to_send_again() {
+        // A caller that reset its stream before its verdict: not told, it
+        // sends again, and the Location goes on for every other caller.
+        let (_, this) = pair();
+        let reset = || -> Result<()> { Err(crate::error::protocol_error("stream 1 was reset")) };
+        let failed = Answer::held(&this)
+            .expect("held")
+            .with(|_| reset())
+            .expect_err("failed");
+        assert!(failed.retryable, "{failed}");
+        assert_eq!(failed.message, "stream 1 was reset");
     }
 
     #[test]
