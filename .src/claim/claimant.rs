@@ -31,7 +31,7 @@
 //! A name carrying the mark, a turn's name, or a sent file's not yet in
 //! place (`unfinished.rs`), is never an arrival ([`may_arrive`]).
 
-use std::time::{SystemTime, UNIX_EPOCH};
+use xcore::{Clock, SystemClock};
 
 use crate::error::Result;
 use crate::node::NodeLocation;
@@ -92,9 +92,7 @@ impl Claimant {
         if !site.take_turn(&turn, &self.0)? {
             return Ok(None);
         }
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(0, |since| since.as_nanos());
+        let nanos = SystemClock.unix_timestamp_nanos().max(0);
         let claimed = format!("{dropped}{MARK}{}.{nanos}", self.0);
         let renamed = match still() {
             Ok(true) => site.rename(dropped, &claimed),

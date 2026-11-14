@@ -6,7 +6,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use xmip_core_transport::latency::TcpControl;
-use xmip_core_transport::lines::{Peer, next, owed, serving, waited};
+use xmip_core_transport::lines::{Lines, Peer, next, owed, serving, waited};
+use xmip_core_transport::serving::Serving;
 
 #[test]
 fn a_connection_freed_while_a_receive_waits_is_waited_on_at_once() {
@@ -56,10 +57,26 @@ fn a_connection_freed_while_a_receive_waits_is_waited_on_at_once() {
 #[test]
 fn exchanges_on_a_kept_connection_take_under_a_millisecond_each() {
     // The owner's rule, held: around a payload, Xmip's own work is
-    // under a millisecond. A thousand lines on one kept connection, each
-    // answered before the next is said.
-    const ROUNDS: u32 = 1000;
+    // under a millisecond. The Location's wait on a read ends it before
+    // the turn would, so no read sets its socket's wait.
     let (serving, address) = serving();
+    a_thousand_exchanges_within_a_second(&serving, address);
+}
+
+#[test]
+fn exchanges_whose_every_read_its_turn_bounds_take_under_a_millisecond_each() {
+    // A turn shorter than the Location's wait on a read: every read is
+    // given what is left of its turn (`deadline::Within`), one
+    // `setsockopt` each, and an exchange still takes under a millisecond.
+    let (serving, address) = serving();
+    let serving = serving.turning_within(Duration::from_secs(1));
+    a_thousand_exchanges_within_a_second(&serving, address);
+}
+
+/// A thousand lines on one kept connection of `serving` at `address`,
+/// each answered before the next is said, within a second.
+fn a_thousand_exchanges_within_a_second(serving: &Serving<Lines>, address: String) {
+    const ROUNDS: u32 = 1000;
     let peer = std::thread::spawn(move || {
         let mut peer = Peer::to(&address);
         for _ in 0..ROUNDS {
@@ -69,7 +86,7 @@ fn exchanges_on_a_kept_connection_take_under_a_millisecond_each() {
     });
     let began = Instant::now();
     for _ in 0..ROUNDS {
-        next(&serving).expect("taken");
+        next(serving).expect("taken");
     }
     let took = began.elapsed();
     peer.join().expect("peer");

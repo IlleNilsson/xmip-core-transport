@@ -10,6 +10,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use crate::answer::{Answer, Busy};
+use crate::deadline::Within;
 use crate::error::{Result, classify};
 use crate::serving::{Open, Serving, Turn};
 use crate::socket;
@@ -21,7 +22,7 @@ pub const WAIT: Option<Duration> = Some(Duration::from_secs(2));
 /// connection's last; `wait` is answered later, by whoever takes its answer
 /// with [`owed`].
 pub struct Lines {
-    reader: BufReader<TcpStream>,
+    reader: BufReader<Within>,
     peer: SocketAddr,
     /// A `wait` taken and not answered: the connection is busy.
     busy: Busy,
@@ -44,7 +45,7 @@ pub fn owed() -> Answer {
 
 impl Open for Lines {
     fn socket(&self) -> &TcpStream {
-        self.reader.get_ref()
+        self.reader.get_ref().socket()
     }
 
     fn waiting(&self) -> bool {
@@ -71,7 +72,7 @@ pub fn line(lines: &mut Lines) -> Result<Turn<(String, SocketAddr)>> {
         return Ok(Turn::Closed);
     }
     if line.trim_end() == "wait" {
-        let owed = Answer::held(lines.reader.get_ref())?.busy(&lines.busy);
+        let owed = Answer::held(lines.reader.get_ref().socket())?.busy(&lines.busy);
         OWED.with(|answers| answers.borrow_mut().push(owed));
         return Ok(Turn::Taken((line.trim_end().to_string(), lines.peer)));
     }
@@ -98,8 +99,9 @@ pub fn line(lines: &mut Lines) -> Result<Turn<(String, SocketAddr)>> {
 /// # Panics
 ///
 /// Where the socket names another peer than the one accepted.
-pub fn opened(stream: TcpStream, accepted: SocketAddr) -> Result<Lines> {
+pub fn opened(stream: Within, accepted: SocketAddr) -> Result<Lines> {
     let peer = stream
+        .socket()
         .peer_addr()
         .map_err(|e| classify("reading the peer", &e))?;
     assert_eq!(peer, accepted);
@@ -144,7 +146,16 @@ impl Peer {
     ///
     /// Where they cannot be written.
     pub fn send(&mut self, bytes: &[u8]) {
-        self.reader.get_mut().write_all(bytes).expect("send");
+        self.sending(bytes).expect("send");
+    }
+
+    /// `bytes` sent as they are, or why not: a peer let go.
+    ///
+    /// # Errors
+    ///
+    /// Where they cannot be written.
+    pub fn sending(&mut self, bytes: &[u8]) -> std::io::Result<()> {
+        self.reader.get_mut().write_all(bytes)
     }
 
     /// Where it calls from: the peer the listener accepted.

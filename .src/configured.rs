@@ -150,6 +150,18 @@ pub trait Configured: Transport + Sized {
     fn guarded_by(self, _guard: Option<&crate::guard::Guard>) -> Result<Self> {
         Ok(self)
     }
+
+    /// This transport's receives giving each caller a turn of at most
+    /// `turn`, the node's `[tuning] receive_turn`: what the runtime calls
+    /// once, after [`Configured::on_node`]. A technology serving its
+    /// callers through [`crate::serving::Serving`] hands it to its serving
+    /// wait ([`crate::serving::Serving::turning_within`]), whose own
+    /// default, [`crate::serving::TURN`], holds otherwise; any other keeps
+    /// nothing, as by default.
+    #[must_use]
+    fn turning_within(self, _turn: std::time::Duration) -> Self {
+        self
+    }
 }
 
 #[cfg(test)]
