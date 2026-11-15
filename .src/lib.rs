@@ -49,7 +49,8 @@
 //!   claim.rs            one holder of a collidable artifact at a time; the file
 //!                       family's turn and rename, written once (claim/)
 //!   configured.rs       the settings a technology declares, and the one way a
-//!                       Location's address and settings build it (ADR-0064)
+//!                       Location's address and settings build it (ADR-0064);
+//!                       its `timeout`, declared, read and kept once
 //!   destination.rs      where a send goes when an address names the server and a
 //!                       setting the destination on it: the empty target a Send
 //!                       Location names, or a target naming another

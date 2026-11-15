@@ -25,6 +25,8 @@ pub trait Line: Send + Sync {
     /// The next frame, or `None` when nothing arrived within `timeout`.
     ///
     /// # Errors
-    /// Where the line could not be read, or carried what opens no frame.
+    /// Where the line could not be read, or carried what opens no frame,
+    /// or a frame began and `timeout` passed before it ended: something
+    /// arrived, so a cut frame is an error, never `None`.
     fn receive(&self, timeout: Duration) -> Result<Option<Vec<u8>>>;
 }

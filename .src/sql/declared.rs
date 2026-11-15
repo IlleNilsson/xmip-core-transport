@@ -41,14 +41,13 @@ pub const QUERY: Setting = Setting {
     applies: Applies::Receive,
 };
 
-/// The setting that bounds the wait on a server.
-pub const TIMEOUT: Setting = Setting {
-    name: "timeout",
-    kind: Kind::Duration,
-    presence: Presence::Optional,
-    meaning: "How long a server that stops mid-answer is waited on; unbounded when left out.",
-    applies: Applies::Both,
-};
+/// The setting that bounds the wait on a server: the transport's one
+/// [`crate::configured::timeout`], in a SQL Location's words.
+pub const TIMEOUT: Setting = crate::configured::timeout(
+    Applies::Both,
+    None,
+    "How long a server that stops mid-answer is waited on; unbounded when left out.",
+);
 
 /// The setting a SQL technology that guards its connections names its TLS
 /// by: on or off, the meaning — when in the login TLS starts — the
