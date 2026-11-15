@@ -32,6 +32,7 @@ use crate::acknowledgement::Acknowledgement;
 use crate::arrivals::Arrivals;
 use crate::arrived::Arrived;
 use crate::claim::{NoNativeClaim, ResourceClaim};
+use crate::configured::Configured;
 use crate::direction::Directions;
 use crate::error::Result;
 use crate::login::Login;
@@ -128,13 +129,6 @@ impl<W: Wire> SqlTransport<W> {
     #[must_use]
     pub fn holding(mut self, column: Column) -> Self {
         self.column = column;
-        self
-    }
-
-    /// Give up on a server that stops mid-answer.
-    #[must_use]
-    pub fn timing_out_after(mut self, timeout: Duration) -> Self {
-        self.timeout = Some(timeout);
         self
     }
 

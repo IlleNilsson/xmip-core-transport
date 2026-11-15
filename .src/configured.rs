@@ -9,15 +9,71 @@
 //! takes what the declaration read. The shape is `xcore::settings`, shared
 //! with every other capability's technologies.
 //!
-//! A companion to [`Transport`](crate::Transport) rather than a part of it:
+//! A companion to [`Transport`] rather than a part of it:
 //! `Transport` mirrors the C ABI's vtable (ADR-0010), and a declaration is
 //! plain data a surface reads without building anything.
+//!
+//! A Location's `timeout`, how long its technology waits on a far end that
+//! stops answering, is written here once (ADR-0064, amendment 2026-11-15):
+//! declared through [`timeout`], read by [`Configured::open`] and handed on
+//! through [`Configured::timing_out_after`] into the place
+//! [`Configured::timeout_kept`] names. Until 2026-11-15 every technology
+//! declared it, read it in its own `configured` and kept it through its own
+//! builder.
 
-use xcore::settings::{Applies, Given, Read, Settings};
+use std::time::Duration;
+
+use xcore::settings::{Applies, Fixed, Given, Kind, Presence, Read, Setting, Settings};
 
 use crate::error::Result;
 use crate::node::NodeLocation;
 use crate::protocol::Transport;
+
+/// The setting a Location bounds its technology's waits on a far end by.
+pub const TIMEOUT: &str = "timeout";
+
+/// The [`TIMEOUT`] setting as a technology declares it among its
+/// [`Configured::SETTINGS`]: a duration, read on `applies`, meaning what
+/// `meaning` says in the technology's words. A Location that leaves it out
+/// waits `default` where there is one, and otherwise as the technology
+/// waits when given none, which its `meaning` says.
+#[must_use]
+pub const fn timeout(
+    applies: Applies,
+    default: Option<Duration>,
+    meaning: &'static str,
+) -> Setting {
+    Setting {
+        name: TIMEOUT,
+        kind: Kind::Duration,
+        presence: match default {
+            Some(default) => Presence::Default(Fixed::Duration(default)),
+            None => Presence::Optional,
+        },
+        meaning,
+        applies,
+    }
+}
+
+/// What a technology keeps its timeout in: an `Option<Duration>`, waiting as
+/// long as it takes until it is given one, or a `Duration`, its own default
+/// until it is given another.
+pub trait TimeoutKept {
+    /// Waiting at most `timeout` from now on.
+    fn keep(&mut self, timeout: Duration);
+}
+
+impl TimeoutKept for Option<Duration> {
+    fn keep(&mut self, timeout: Duration) {
+        *self = Some(timeout);
+    }
+}
+
+impl TimeoutKept for Duration {
+    fn keep(&mut self, timeout: Duration) {
+        *self = timeout;
+    }
+}
 
 /// A transport technology a Location can be configured with.
 pub trait Configured: Transport + Sized {
@@ -68,16 +124,43 @@ pub trait Configured: Transport + Sized {
     fn configured(address: &str, settings: &Read) -> Result<Self>;
 
     /// Read what a Location on `side` gave through [`Configured::SETTINGS`],
-    /// and build this technology from it, on that side
-    /// ([`Configured::sided`]): the one way from a Location's table to a
-    /// transport.
+    /// and build this technology from it, timing out after the Location's
+    /// [`TIMEOUT`] where it read one ([`Configured::timing_out_after`]), on
+    /// that side ([`Configured::sided`]): the one way from a Location's table
+    /// to a transport.
     ///
     /// # Errors
     /// Every setting the declaration refuses, each naming the technology and
     /// the setting; then whatever [`Configured::configured`] refuses.
     fn open(address: &str, side: Applies, given: &[(String, Given)]) -> Result<Self> {
         let read = Self::SETTINGS.read(side, given)?;
-        Self::configured(Self::own_terms(address), &read).map(|built| built.sided(side))
+        let built = Self::configured(Self::own_terms(address), &read)?;
+        let built = match read.optional_duration(TIMEOUT) {
+            Some(timeout) => built.timing_out_after(timeout),
+            None => built,
+        };
+        Ok(built.sided(side))
+    }
+
+    /// Where this technology keeps how long it waits on a far end that
+    /// stops answering, its Location's [`TIMEOUT`]: what
+    /// [`Configured::timing_out_after`] keeps a timeout in. `None`, as by
+    /// default, for a technology that declares no timeout.
+    fn timeout_kept(&mut self) -> Option<&mut dyn TimeoutKept> {
+        None
+    }
+
+    /// This technology giving up on a far end that stops answering after
+    /// `timeout`: what [`Configured::open`] hands it from its Location's
+    /// [`TIMEOUT`], and what a loopback or a test builds it with. Kept where
+    /// [`Configured::timeout_kept`] says; a technology that hands it on to a
+    /// part it speaks through as well says so here.
+    #[must_use]
+    fn timing_out_after(mut self, timeout: Duration) -> Self {
+        if let Some(kept) = self.timeout_kept() {
+            kept.keep(timeout);
+        }
+        self
     }
 
     /// This transport on `side`, as [`Configured::open`] builds it. A
@@ -159,7 +242,7 @@ pub trait Configured: Transport + Sized {
     /// default, [`crate::serving::TURN`], holds otherwise; any other keeps
     /// nothing, as by default.
     #[must_use]
-    fn turning_within(self, _turn: std::time::Duration) -> Self {
+    fn turning_within(self, _turn: Duration) -> Self {
         self
     }
 }
@@ -169,12 +252,12 @@ mod tests {
     use super::*;
     use crate::arrived::Arrived;
     use crate::direction::Directions;
-    use xcore::settings::{Fixed, Kind, Presence, Setting};
 
     struct Example {
         address: String,
         topic: String,
         wait_ms: u128,
+        timeout: Option<Duration>,
     }
 
     impl Transport for Example {
@@ -219,6 +302,12 @@ mod tests {
                     meaning: "How long one receive waits.",
                     applies: Applies::Receive,
                 },
+                timeout(
+                    Applies::Both,
+                    None,
+                    "How long a far end that stops answering is waited on; unbounded when left \
+                     out.",
+                ),
             ],
         };
 
@@ -231,8 +320,85 @@ mod tests {
                 wait_ms: settings
                     .optional_duration("wait")
                     .map_or(0, |wait| wait.as_millis()),
+                timeout: None,
             })
         }
+
+        fn timeout_kept(&mut self) -> Option<&mut dyn TimeoutKept> {
+            Some(&mut self.timeout)
+        }
+    }
+
+    /// A Location for the topic `orders`, with `more` beside it.
+    fn orders(more: &[(&str, Given)]) -> Vec<(String, Given)> {
+        let topic = ("topic".to_string(), Given::Text("orders".to_string()));
+        let more = more
+            .iter()
+            .map(|(name, value)| (name.to_string(), value.clone()));
+        std::iter::once(topic).chain(more).collect()
+    }
+
+    #[test]
+    fn a_locations_configured_timeout_reaches_the_technology() {
+        assert_eq!(Example::SETTINGS.problems(), Vec::<String>::new());
+        let given = orders(&[(TIMEOUT, Given::Text("250ms".to_string()))]);
+        for side in [Applies::Receive, Applies::Send] {
+            let built = Example::open("host:1", side, &given).expect("built");
+            assert_eq!(built.timeout, Some(Duration::from_millis(250)), "{side:?}");
+        }
+        let unset = Example::open("host:1", Applies::Receive, &orders(&[])).expect("built");
+        assert_eq!(
+            unset.timeout, None,
+            "a Location that sets none waits unbounded"
+        );
+
+        let wrong = orders(&[(TIMEOUT, Given::Integer(250))]);
+        let Err(refused) = Example::open("host:1", Applies::Receive, &wrong) else {
+            panic!("a timeout is a duration");
+        };
+        assert!(
+            refused.message.contains("\"timeout\""),
+            "{}",
+            refused.message
+        );
+    }
+
+    #[test]
+    fn a_declared_default_is_what_a_location_that_leaves_the_timeout_out_waits() {
+        const DEFAULTED: &Settings = &Settings {
+            technology: "xmip-core-transport-example",
+            settings: &[timeout(
+                Applies::Receive,
+                Some(Duration::from_secs(2)),
+                "How long a receive waits for a frame before it finds none.",
+            )],
+        };
+        assert_eq!(DEFAULTED.problems(), Vec::<String>::new());
+        let declared = DEFAULTED.setting(TIMEOUT).expect("declared");
+        assert_eq!(declared.kind, Kind::Duration);
+        let default = Fixed::Duration(Duration::from_secs(2));
+        assert_eq!(declared.presence, Presence::Default(default));
+        let received = DEFAULTED.read(Applies::Receive, &[]).expect("read");
+        assert_eq!(
+            received.optional_duration(TIMEOUT),
+            Some(Duration::from_secs(2))
+        );
+        let sent = DEFAULTED.read(Applies::Send, &[]).expect("read");
+        assert_eq!(
+            sent.optional_duration(TIMEOUT),
+            None,
+            "the Send side waits on nothing"
+        );
+    }
+
+    #[test]
+    fn a_timeout_is_kept_as_its_technology_keeps_it() {
+        let mut unbounded: Option<Duration> = None;
+        unbounded.keep(Duration::from_millis(250));
+        assert_eq!(unbounded, Some(Duration::from_millis(250)));
+        let mut defaulted = Duration::from_secs(1);
+        defaulted.keep(Duration::from_millis(250));
+        assert_eq!(defaulted, Duration::from_millis(250));
     }
 
     #[test]

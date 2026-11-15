@@ -5,10 +5,10 @@
 use xcore::settings::{Read, Settings};
 
 use super::SqlTransport;
-use crate::configured::Configured;
+use crate::configured::{Configured, TimeoutKept};
 use crate::error::Result;
 use crate::secured::Secured;
-use crate::sql::declared::{QUERY, TIMEOUT, USER};
+use crate::sql::declared::{QUERY, USER};
 use crate::sql::wire::Wire;
 use crate::sql::{Column, accept};
 
@@ -43,9 +43,10 @@ impl<W: Wire> Configured for SqlTransport<W> {
         if let Some(statement) = settings.optional_text(accept::ACCEPT.name) {
             transport = transport.with_accept(statement);
         }
-        if let Some(timeout) = settings.optional_duration(TIMEOUT.name) {
-            transport = transport.timing_out_after(timeout);
-        }
         Ok(transport)
+    }
+
+    fn timeout_kept(&mut self) -> Option<&mut dyn TimeoutKept> {
+        Some(&mut self.timeout)
     }
 }
