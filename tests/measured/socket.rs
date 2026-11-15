@@ -45,10 +45,10 @@ fn a_connection_is_accepted_as_it_lands_not_after_a_nap() {
     peer.join().expect("peer");
     let waited = xcore::latency::spread("an accept after the connection landed", waited);
     let machine = control.load();
-    assert!(
-        waited.fastest_of_five < Duration::from_millis(1) + machine.fastest_of_five,
-        "an accept waited {:?}, the fastest of five, the machine's own {:?}",
+    xcore::latency::woke_beside_a_plain_wake(
+        "an accept after the connection landed",
         waited.fastest_of_five,
-        machine.fastest_of_five
+        machine.fastest_of_five,
+        1,
     );
 }

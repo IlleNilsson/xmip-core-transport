@@ -5,6 +5,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use xcore::latency::{Rounds, woke_beside_a_plain_wake};
 use xmip_core_transport::latency::TcpControl;
 use xmip_core_transport::lines::{Lines, Peer, next, owed, serving, waited};
 use xmip_core_transport::serving::Serving;
@@ -46,11 +47,11 @@ fn a_connection_freed_while_a_receive_waits_is_waited_on_at_once() {
     }
     let took = xcore::latency::spread("a line on a connection freed meanwhile", took);
     let machine = control.load();
-    assert!(
-        took.fastest_of_five < Duration::from_millis(1) + machine.fastest_of_five,
-        "taken {:?} after the line was said, the fastest of five, the machine's own {:?}",
+    woke_beside_a_plain_wake(
+        "a line taken after it was said",
         took.fastest_of_five,
-        machine.fastest_of_five
+        machine.fastest_of_five,
+        1,
     );
 }
 
@@ -60,7 +61,7 @@ fn exchanges_on_a_kept_connection_take_under_a_millisecond_each() {
     // under a millisecond. The Location's wait on a read ends it before
     // the turn would, so no read sets its socket's wait.
     let (serving, address) = serving();
-    a_thousand_exchanges_within_a_second(&serving, address);
+    a_thousand_exchanges_each_under_a_millisecond(&serving, address);
 }
 
 #[test]
@@ -70,12 +71,19 @@ fn exchanges_whose_every_read_its_turn_bounds_take_under_a_millisecond_each() {
     // `setsockopt` each, and an exchange still takes under a millisecond.
     let (serving, address) = serving();
     let serving = serving.turning_within(Duration::from_secs(1));
-    a_thousand_exchanges_within_a_second(&serving, address);
+    a_thousand_exchanges_each_under_a_millisecond(&serving, address);
 }
 
+/// What one exchange wakes where a plain wake wakes one: the peer at the
+/// answer, and the serving side at the peer's next line
+/// (`xcore::latency::Rounds`).
+const EXCHANGE_WAKES: u32 = 2;
+
 /// A thousand lines on one kept connection of `serving` at `address`,
-/// each answered before the next is said, within a second.
-fn a_thousand_exchanges_within_a_second(serving: &Serving<Lines>, address: String) {
+/// each answered before the next is said: each the millisecond beyond its
+/// wakes, round by round beside a plain wake. Until 2026-11-15 the
+/// thousand were held within a second together.
+fn a_thousand_exchanges_each_under_a_millisecond(serving: &Serving<Lines>, address: String) {
     const ROUNDS: u32 = 1000;
     let peer = std::thread::spawn(move || {
         let mut peer = Peer::to(&address);
@@ -84,14 +92,10 @@ fn a_thousand_exchanges_within_a_second(serving: &Serving<Lines>, address: Strin
             assert_eq!(peer.heard(), "ok\n");
         }
     });
-    let began = Instant::now();
+    let mut rounds = Rounds::crossing(EXCHANGE_WAKES);
     for _ in 0..ROUNDS {
-        next(serving).expect("taken");
+        rounds.round(|| next(serving)).expect("taken");
     }
-    let took = began.elapsed();
     peer.join().expect("peer");
-    assert!(
-        took < Duration::from_millis(u64::from(ROUNDS)),
-        "{ROUNDS} exchanges took {took:?}"
-    );
+    rounds.hold("a line taken and answered on a kept connection");
 }

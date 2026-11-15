@@ -2,12 +2,16 @@
 //! measured under the same load.
 //!
 //! The owner, 2026-09-26: what Xmip does around a payload is measured in
-//! milliseconds, *apart from load*. A transport's latency test holds its
-//! rounds, the fastest of each five ([`xcore::latency`]), to a bound plus
-//! what [`TcpControl`] took — a thread woken by one byte on a loopback
-//! connection, the least any TCP transport can do — so a machine busy
-//! compiling fails nothing, and a transport that adds its own milliseconds
-//! does. Compiled for tests only, as [`crate::payload`].
+//! milliseconds, *apart from load*. This crate's timing program holds a
+//! wait the wire alone wakes — an accept as the connection lands, a line on
+//! a connection freed meanwhile — the fastest of each five, to the
+//! millisecond plus what [`TcpControl`] took
+//! (`xcore::latency::woke_beside_a_plain_wake`): a thread woken by one byte
+//! on a loopback connection, the least any TCP transport can do — so a
+//! machine busy compiling fails nothing, and a transport that adds its own
+//! milliseconds does. A transport's send or receive against its far end is
+//! held by `xcore::latency::Rounds`, its processor time too. Compiled for
+//! tests only, as [`crate::payload`].
 
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
