@@ -4,6 +4,8 @@
 
 use std::time::{Duration, Instant};
 
+use xcore::fastest::FIVE;
+use xcore::latency::spread;
 use xmip_core_transport::claim::{Claimant, Memory};
 use xmip_core_transport::node::NodeLocation;
 
@@ -35,23 +37,26 @@ fn crowded() -> Memory {
 
 /// What a recovery costs beyond the far end's own work — its listings and
 /// each removal it is asked for — over a hundred names: the fastest of five
-/// rounds, each over a location made anew.
+/// rounds (`xcore::latency::spread`), each over a location made anew. It
+/// waits on no wake, so no plain wake is measured beside it.
 #[test]
 fn the_removal_costs_no_more_than_a_millisecond_beyond_the_far_end() {
     let me = claimant(0);
-    let rounds = (0..5).map(|_| {
-        let site = crowded();
-        let before = site.spent();
-        let started = Instant::now();
-        me.recover(&site).expect("recovered");
-        let all = started.elapsed();
-        let far_end = site.spent().saturating_sub(before);
-        assert_eq!(site.names().len(), 70, "thirty removed");
-        (all.saturating_sub(far_end), all, far_end)
-    });
-    let (beyond, all, far_end) = rounds.min().expect("five rounds");
+    let beyond = (0..FIVE)
+        .map(|_| {
+            let site = crowded();
+            let before = site.spent();
+            let started = Instant::now();
+            me.recover(&site).expect("recovered");
+            let all = started.elapsed();
+            let far_end = site.spent().saturating_sub(before);
+            assert_eq!(site.names().len(), 70, "thirty removed");
+            all.saturating_sub(far_end)
+        })
+        .collect();
+    let beyond = spread("a recovery beyond the far end's own work", beyond);
     assert!(
-        beyond <= Duration::from_millis(1),
-        "{beyond:?} beyond the far end ({all:?} in all, {far_end:?} at the far end)"
+        beyond.fastest_of_five <= Duration::from_millis(1),
+        "{beyond:?} beyond the far end"
     );
 }
