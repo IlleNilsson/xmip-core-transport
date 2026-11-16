@@ -39,6 +39,13 @@
 //! the Clock the serving wait was handed, the node's
 //! ([`Serving::timed_by`]; ADR-0068, amendment 2026-11-15).
 //!
+//! **The listener is bound at open** (the owner, 2026-11-16, *Bind at
+//! open*). A technology binds it through [`Serving::bound`] in its
+//! `Configured::listening`, as the runtime opens its Receive Location's
+//! transport, and a receive's wait ([`Serving::next`]) takes the listener
+//! that bound and binds nothing ([`crate::kept`]). Until 2026-11-16 the
+//! first receive bound it, after the node had started.
+//!
 //! The wait itself — one readiness wait over the listener and every kept
 //! connection, a new peer accepted and kept — is `serving/wait.rs`'s.
 
@@ -189,15 +196,16 @@ impl<C: Open> Serving<C> {
         Ok(self.freed.get_or_init(|| made))
     }
 
-    /// Where the listener is bound: `None` before the first receive.
+    /// Where the listener is bound: `None` until it is.
     #[must_use]
     pub fn address(&self) -> Option<&str> {
         self.listener.address()
     }
 
-    /// Bind the listener by `bind` now, where the first receive has not,
-    /// and say where it is: for a Location bound at configuration, and a
-    /// test that sends before it receives.
+    /// Bind the listener by `bind` now, where it is not yet, and say where
+    /// it is: what a technology's `Configured::listening` calls as its
+    /// Receive Location's transport is opened, so the node listens when it
+    /// says it started.
     ///
     /// # Errors
     /// As `bind`.
@@ -214,27 +222,27 @@ impl<C: Open> Serving<C> {
 
     /// The next exchange, from whichever peer sends first within `timeout`
     /// (`None` waits as long as it takes, which is what a listening Receive
-    /// Location does): the listener bound by `bind` where it is not yet, a
-    /// new peer made a connection by `opened` from the [`Within`] its
-    /// reads go through, and kept, and a turn taken on a connection by
-    /// `exchange`. A connection's timeout on each read is `timeout` too,
-    /// and a turn's reads together take at most [`Serving::turn`], so a
-    /// peer that stops mid-exchange, or dribbles, is let go. A peer whose
-    /// connection could not be readied or opened, or whose turn failed, is
-    /// let go and turned away ([`Serving::turned_away`]), and the wait goes
-    /// on.
+    /// Location does), on the listener [`Serving::bound`] bound as the
+    /// transport was opened: a new peer made a connection by `opened` from
+    /// the [`Within`] its reads go through, and kept, and a turn taken on a
+    /// connection by `exchange`. A connection's timeout on each read is
+    /// `timeout` too, and a turn's reads together take at most
+    /// [`Serving::turn`], so a peer that stops mid-exchange, or dribbles,
+    /// is let go. A peer whose connection could not be readied or opened,
+    /// or whose turn failed, is let go and turned away
+    /// ([`Serving::turned_away`]), and the wait goes on.
     ///
     /// # Errors
-    /// Where the listener could not be bound, waited on or accepted from,
-    /// or nothing arrived within `timeout` (retryable).
+    /// Where nothing is bound ([`Kept::listener`]), the listener could not
+    /// be waited on or accepted from, or nothing arrived within `timeout`
+    /// (retryable).
     pub fn next<T>(
         &self,
-        bind: impl FnOnce() -> Result<(TcpListener, String)>,
         timeout: Option<Duration>,
         mut opened: impl FnMut(Within, SocketAddr) -> Result<C>,
         mut exchange: impl FnMut(&mut C) -> Result<Turn<T>>,
     ) -> Result<T> {
-        let listener = self.listener.bound(bind)?;
+        let listener = self.listener.listener()?;
         let freed = self.freed()?;
         let mut opened = |stream, peer| {
             let made = opened(stream, peer)?;
@@ -360,9 +368,8 @@ mod tests {
             }
             opened(stream, peer)
         };
-        let unbound = || -> Result<(TcpListener, String)> { panic!("bound twice") };
         let (said, _) = serving
-            .next(unbound, WAIT, refusing, line)
+            .next(WAIT, refusing, line)
             .expect("the next caller served");
         assert_eq!(said, "fine");
         let turned = serving.turned_away();
@@ -372,14 +379,18 @@ mod tests {
     }
 
     #[test]
-    fn a_listener_that_cannot_bind_fails_the_receive() {
+    fn a_listener_that_cannot_bind_fails_its_open_and_a_receive_binds_nothing() {
         let serving = Serving::<Lines>::new();
         let unbindable = || Err(TransportError::permanent("not this machine's address"));
-        let error = serving
-            .next(unbindable, WAIT, opened, line)
-            .expect_err("no listener");
-        assert!(!error.retryable, "{error}");
+        let error = serving.bound(unbindable).expect_err("no listener");
         assert_eq!(error.message, "not this machine's address");
+        // Until 2026-11-16 a receive bound the listener where nothing had.
+        let error = serving
+            .next(WAIT, opened, line)
+            .expect_err("nothing listens");
+        assert!(!error.retryable, "{error}");
+        assert!(error.message.contains("listening"), "{error}");
+        assert_eq!(serving.address(), None);
     }
 
     #[test]

@@ -5,7 +5,7 @@
 
 use std::cell::RefCell;
 use std::io::{BufRead, BufReader, Write};
-use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::net::{SocketAddr, TcpStream};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
@@ -193,9 +193,9 @@ pub fn serving() -> (Serving<Lines>, String) {
         binds.fetch_add(1, Ordering::SeqCst);
         socket::bind_tcp("127.0.0.1:0")
     };
-    // Bound before any peer, as the first receive binds it.
-    drop(serving.next(bind, Some(Duration::from_millis(1)), opened, line));
-    let address = serving.address().expect("bound").to_string();
+    // Bound before any peer, as a Receive Location's open binds it.
+    let address = serving.bound(bind).expect("bound").to_string();
+    assert_eq!(serving.address(), Some(address.as_str()));
     let again = serving.bound(|| panic!("bound twice")).expect("kept");
     assert_eq!(again, address);
     assert_eq!(binds.load(Ordering::SeqCst), 1);
@@ -216,12 +216,8 @@ pub fn next(serving: &Serving<Lines>) -> Result<(String, SocketAddr)> {
 ///
 /// # Errors
 ///
-/// Nothing said within the wait, or a line that could not be read.
-///
-/// # Panics
-///
-/// Where `serving` was not bound yet.
+/// Nothing said within the wait, a line that could not be read, or
+/// `serving` not bound yet.
 pub fn waited(serving: &Serving<Lines>, within: Option<Duration>) -> Result<(String, SocketAddr)> {
-    let unbound = || -> Result<(TcpListener, String)> { panic!("bound twice") };
-    serving.next(unbound, within, opened, line)
+    serving.next(within, opened, line)
 }

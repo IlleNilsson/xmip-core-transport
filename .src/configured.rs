@@ -20,6 +20,12 @@
 //! [`Configured::timeout_kept`] names. Until 2026-11-15 every technology
 //! declared it, read it in its own `configured` and kept it through its own
 //! builder.
+//!
+//! A Receive Location's listener is bound as its transport is opened, by
+//! [`Configured::listening`], never on its first receive (the owner,
+//! 2026-11-16, *Bind at open*): [`Configured::open`] builds and binds
+//! nothing, so a surface validating a Location, or the runtime asking
+//! whether one waits, takes no port.
 
 use std::time::Duration;
 
@@ -270,6 +276,30 @@ pub trait Configured: Transport + Sized {
     fn timed_by(self, _clock: &std::sync::Arc<dyn xcore::Clock>) -> Self {
         self
     }
+
+    /// Bind what this technology's receive waits on — its listener, its
+    /// datagram socket, its pipe — where nothing is bound yet, and say
+    /// where it listens: what the runtime calls once for each Receive
+    /// Location, after [`Configured::guarded_by`], as it opens its transport
+    /// at startup phase 9, and never for a Send Location (the owner,
+    /// 2026-11-16, *Bind at open*).
+    /// So a node listens when it says it started, and a port that is taken
+    /// refuses its start there, the runtime naming the Location and the
+    /// bind's failure the address and the port. A technology whose receive
+    /// waits on what it keeps ([`crate::kept::Kept`],
+    /// [`crate::serving::Serving`]) binds it here, through
+    /// [`crate::kept::Kept::bound`], and its receive takes what this bound
+    /// and binds nothing; any other listens on nothing, `None`, as by
+    /// default — one that goes to look, or connects out.
+    /// Until 2026-11-16 the first receive bound the listener, after the
+    /// node had started (open problem 71).
+    ///
+    /// # Errors
+    /// Where the listener could not be bound: its address taken, not this
+    /// machine's, or not one the technology listens at.
+    fn listening(&self) -> Result<Option<&str>> {
+        Ok(None)
+    }
 }
 
 #[cfg(test)]
@@ -375,6 +405,11 @@ mod tests {
         assert_eq!(
             unset.timeout, None,
             "a Location that sets none waits unbounded"
+        );
+        assert_eq!(
+            unset.listening().expect("nothing to bind"),
+            None,
+            "a technology that keeps no listener listens on nothing"
         );
 
         let wrong = orders(&[(TIMEOUT, Given::Integer(250))]);
