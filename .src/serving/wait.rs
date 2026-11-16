@@ -4,10 +4,11 @@
 //! that spoke handed back for its turn.
 
 use std::net::{SocketAddr, TcpListener};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use rustix::fd::AsFd;
+use xcore::Clock;
 use xcore::lock::Locked;
 
 use super::{Connection, MOST_KEPT, Open, owing};
@@ -18,28 +19,33 @@ use crate::socket;
 use crate::turned::Turned;
 
 /// One receive's wait: the listener, what a freed connection tells, where
-/// a caller turned away is kept, and how long the receive may wait.
+/// a caller turned away is kept, the Clock a new connection's turns are
+/// counted on, and how long the receive may wait.
 pub(super) struct Wait<'a> {
     listener: &'a TcpListener,
     freed: &'a Freed,
     turned: &'a Mutex<Turned>,
+    clock: &'a Arc<dyn Clock>,
     deadline: Option<Instant>,
     timeout: Option<Duration>,
 }
 
 impl<'a> Wait<'a> {
     /// A wait on `listener` and the connections kept on it, ending within
-    /// `timeout` from now (`None` waits as long as it takes).
+    /// `timeout` from now (`None` waits as long as it takes), a new
+    /// connection's turns counted on `clock`.
     pub(super) fn new(
         listener: &'a TcpListener,
         freed: &'a Freed,
         turned: &'a Mutex<Turned>,
+        clock: &'a Arc<dyn Clock>,
         timeout: Option<Duration>,
     ) -> Self {
         Self {
             listener,
             freed,
             turned,
+            clock,
             deadline: timeout.map(|timeout| Instant::now() + timeout),
             timeout,
         }
@@ -74,7 +80,7 @@ impl<'a> Wait<'a> {
             let nobody = socket::NOTHING_CONNECTED;
             let (stream, peer) = socket::accept_within(self.listener, self.timeout, nobody)?;
             let made = socket::accepted(&stream, self.timeout).and_then(|()| {
-                let within = Within::new(stream);
+                let within = Within::timed_by(stream, self.clock);
                 let deadline = within.deadline().clone();
                 opened(within, peer).map(|made| (made, deadline))
             });

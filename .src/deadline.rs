@@ -28,12 +28,19 @@
 
 use std::io::{self, BufReader, ErrorKind, Read, Write};
 use std::net::TcpStream;
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::sync::{Arc, LazyLock, Mutex};
+use std::time::Duration;
 
+use xcore::clock::{between, nanos};
 use xcore::lock::Locked;
+use xcore::{Clock, SystemClock};
 
 use crate::error::{Result, classify};
+
+/// The operating system's clock, for a connection no serving wait handed
+/// the node's: it is never given a turn, and a protocol on it counts its
+/// own spans on this.
+static SYSTEM: LazyLock<Arc<dyn Clock>> = LazyLock::new(|| Arc::new(SystemClock));
 
 /// A connection a Receive Location serves: read within the turn its serving
 /// wait gives it, and as its socket says between turns.
@@ -45,14 +52,27 @@ pub struct Within {
 
 /// When the turn a connection is in ends: given by the serving wait before
 /// each turn and taken back after it, and read by every read of the
-/// connection, wherever in a technology's readers the connection sits.
-#[derive(Clone, Debug, Default)]
-pub(crate) struct Deadline(Arc<Mutex<Turning>>);
+/// connection, wherever in a technology's readers the connection sits. The
+/// turn is counted on the monotonic reading of the Clock the serving wait
+/// was handed, the node's (ADR-0068, amendment 2026-11-15), so a test steps
+/// it past the turn with no sleep.
+#[derive(Clone)]
+pub(crate) struct Deadline {
+    turning: Arc<Mutex<Turning>>,
+    clock: Arc<dyn Clock>,
+}
+
+impl std::fmt::Debug for Deadline {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("Deadline").field(&self.turning).finish()
+    }
+}
 
 #[derive(Debug, Default)]
 struct Turning {
-    /// When the turn ends, and the span it was given: `None` between turns.
-    until: Option<(Instant, Duration)>,
+    /// When the turn ends, as the clock reads it, and the span it was
+    /// given: `None` between turns.
+    until: Option<(i128, Duration)>,
     /// The Location's own wait on a read; `None` waits as long as it takes.
     wait: Option<Duration>,
     /// Whether the socket waits less than the Location's own wait now: the
@@ -64,27 +84,37 @@ impl Deadline {
     /// A turn of `span` from now, each of its reads waiting at most `wait`,
     /// the Location's own.
     pub(crate) fn begin(&self, span: Duration, wait: Option<Duration>) {
-        let mut turning = self.0.locked();
-        turning.until = Some((Instant::now() + span, span));
+        let until = self.clock.monotonic_nanos().saturating_add(nanos(span));
+        let mut turning = self.turning.locked();
+        turning.until = Some((until, span));
         turning.wait = wait;
     }
 
     /// The turn over: a read waits as the Location says again.
     pub(crate) fn end(&self) {
-        self.0.locked().until = None;
+        self.turning.locked().until = None;
     }
 }
 
 impl Within {
-    /// `stream`, read as its socket says until a serving wait gives it a
-    /// turn: what [`crate::serving::Serving`] hands every connection it
-    /// accepts, and what a technology accepting one connection alone, as a
-    /// far end does, reads it through.
+    /// `stream`, read as its socket says: what a technology accepting one
+    /// connection alone, as a far end does, reads it through. No serving
+    /// wait gives it a turn; its clock is the operating system's.
     #[must_use]
     pub fn new(stream: TcpStream) -> Self {
+        Self::timed_by(stream, &SYSTEM)
+    }
+
+    /// `stream`, read as its socket says until a serving wait gives it a
+    /// turn, counted on `clock`: what [`crate::serving::Serving`] hands
+    /// every connection it accepts, with the Clock it was handed.
+    pub(crate) fn timed_by(stream: TcpStream, clock: &Arc<dyn Clock>) -> Self {
         Self {
             stream,
-            deadline: Deadline::default(),
+            deadline: Deadline {
+                turning: Arc::default(),
+                clock: Arc::clone(clock),
+            },
         }
     }
 
@@ -97,6 +127,14 @@ impl Within {
     /// The deadline its serving wait gives it.
     pub(crate) const fn deadline(&self) -> &Deadline {
         &self.deadline
+    }
+
+    /// The Clock its turns are counted on, its serving wait's: what a
+    /// protocol on the connection counts its own spans on — HTTP/2's frames
+    /// in a span.
+    #[must_use]
+    pub const fn clock(&self) -> &Arc<dyn Clock> {
+        &self.deadline.clock
     }
 
     /// This connection as a buffered reader, read within its turn, and a
@@ -127,11 +165,11 @@ impl Within {
     /// Location's wait put back where a read before was given less, and
     /// nothing at all once the turn passed.
     fn bounded(&self) -> io::Result<()> {
-        let mut turning = self.deadline.0.locked();
+        let mut turning = self.deadline.turning.locked();
         let wait = turning.wait;
         let shortened = match turning.until {
             Some((until, span)) => {
-                let left = until.saturating_duration_since(Instant::now());
+                let left = between(self.deadline.clock.monotonic_nanos(), until);
                 if left.is_zero() {
                     return Err(passed(span));
                 }
@@ -158,10 +196,10 @@ impl Within {
         if !matches!(error.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) {
             return error;
         }
-        let mut turning = self.deadline.0.locked();
+        let mut turning = self.deadline.turning.locked();
         match turning.until {
             Some((_, span)) if turning.shortened => {
-                turning.until = Some((Instant::now(), span));
+                turning.until = Some((self.deadline.clock.monotonic_nanos(), span));
                 passed(span)
             }
             _ => error,
@@ -196,6 +234,10 @@ impl Write for Within {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Instant;
+
+    use xcore::clock::Stepped;
+
     use super::*;
     use crate::socket::{accept_tcp, bind_tcp, connect_tcp};
 
@@ -207,6 +249,31 @@ mod tests {
         let peer = connect_tcp(&address, WAIT).expect("connected");
         let (stream, _) = accept_tcp(&listener, wait).expect("accepted");
         (Within::new(stream), peer)
+    }
+
+    #[test]
+    fn a_turn_counts_on_its_clock_its_reads_given_what_is_left_and_none_once_it_passed() {
+        let clock = Arc::new(Stepped::default());
+        let handed: Arc<dyn Clock> = Arc::clone(&clock) as Arc<dyn Clock>;
+        let (within, mut peer) = connected(WAIT);
+        let mut within = Within::timed_by(within.stream, &handed);
+        within.deadline().begin(Duration::from_secs(60), WAIT);
+        peer.write_all(b"xy").expect("sent");
+        clock.pass(Duration::from_secs(59));
+        let mut buffer = [0u8; 1];
+        assert_eq!(within.read(&mut buffer).expect("within the turn"), 1);
+        // A second of the turn is left: the socket waits that, not its two.
+        let given = within.socket().read_timeout().expect("its wait");
+        assert_eq!(given, Some(Duration::from_secs(1)));
+
+        clock.pass(Duration::from_secs(1));
+        let passed = within.read(&mut buffer).expect_err("the turn passed");
+        assert_eq!(passed.kind(), ErrorKind::TimedOut, "{passed}");
+        assert!(passed.to_string().contains("60000 ms"), "{passed}");
+        // Between turns the byte that waited is read, as the socket says.
+        within.deadline().end();
+        assert_eq!(within.read(&mut buffer).expect("read"), 1);
+        assert_eq!(within.socket().read_timeout().expect("its wait"), WAIT);
     }
 
     #[test]
@@ -251,7 +318,7 @@ mod tests {
         let mut buffer = [0u8; 8];
         assert_eq!(within.read(&mut buffer).expect("read"), 1);
         assert_eq!(within.socket().read_timeout().expect("its wait"), wait);
-        assert!(!within.deadline.0.locked().shortened);
+        assert!(!within.deadline.turning.locked().shortened);
     }
 
     #[test]

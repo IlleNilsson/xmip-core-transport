@@ -200,6 +200,19 @@ pub trait Configured: Transport + Sized {
         self
     }
 
+    /// This transport on what the Locations of its node share
+    /// (`crate::sharing`): what the runtime calls once, after
+    /// [`Configured::on_node`], with the node's sharing. A technology whose
+    /// Locations name a device the operating system opens for one handle at
+    /// a time — a serial port — takes the device's one port from it, so every
+    /// Location naming the device on the node goes through that one
+    /// (ADR-0064, amendment 2026-11-15); any other keeps nothing, as by
+    /// default.
+    #[must_use]
+    fn shared_by(self, _sharing: &std::sync::Arc<dyn crate::Sharing>) -> Self {
+        self
+    }
+
     /// This transport presenting `secured`, the secret its Location names
     /// (`secret = "<name>"`; ADR-0019, amendment 2026-10-29): what the
     /// runtime calls once, after [`Configured::on_node`], for a Location
@@ -243,6 +256,18 @@ pub trait Configured: Transport + Sized {
     /// nothing, as by default.
     #[must_use]
     fn turning_within(self, _turn: Duration) -> Self {
+        self
+    }
+
+    /// This transport telling time by `clock`, its node's: what the runtime
+    /// calls once, after [`Configured::on_node`]. A technology that decides
+    /// on a span counts it on the Clock's monotonic reading (ADR-0068,
+    /// amendment 2026-11-15) — its serving wait's turn
+    /// ([`crate::serving::Serving::timed_by`]), the frames an HTTP/2 peer
+    /// sends in a span — so a test steps the Clock past it with no sleep;
+    /// any other keeps nothing, as by default.
+    #[must_use]
+    fn timed_by(self, _clock: &std::sync::Arc<dyn xcore::Clock>) -> Self {
         self
     }
 }

@@ -56,7 +56,10 @@
 //!                       Location names, or a target naming another
 //!   node.rs             the node a transport is built on, by its location, given
 //!                       once as the runtime builds it
-//!   loopback.rs         a transport that is both ends of one exchange, with its
+//!   sharing.rs          what the Locations of one node share of a thing each names:
+//!                       a serial device's one port, by its path, handed to each
+//!                       transport as the runtime builds it
+//!   loopback.rs        a transport that is both ends of one exchange, with its
 //!                       ceiling and refusals; what the Essentials drives (ADR-0051);
 //!                       both ends on two threads, and the poke that releases a far end
 //!
@@ -172,6 +175,7 @@ pub mod secured;
 pub mod sender;
 pub mod sending;
 pub mod serving;
+pub mod sharing;
 pub mod socket;
 pub mod sql;
 pub mod standing;
@@ -205,6 +209,7 @@ pub use protocol::Transport;
 pub use refused::Refused;
 pub use secured::Secured;
 pub use sending::Sending;
+pub use sharing::{Shared, Sharing};
 pub use taken::Taken;
 pub use turned::{Turned, TurnedAway};
 pub use waiting::{Notice, Waiting};
