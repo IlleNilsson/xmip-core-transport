@@ -160,11 +160,13 @@ fn readable(source: &impl rustix::fd::AsFd, within: Duration) -> io::Result<()> 
 /// `within` passes (`None` waits as long as it takes): which of them did,
 /// in the order given. One wait over a listener and the connections kept
 /// on it is how a Receive Location takes whichever peer spoke first
-/// ([`crate::serving`]).
+/// ([`crate::serving`]); on Unix a serial port's receive waits here for
+/// its first byte without holding the port (`serial`'s watch; ADR-0064,
+/// amendment 2026-11-15).
 ///
 /// # Errors
 /// Where the wait itself failed.
-pub(crate) fn ready(
+pub fn ready(
     sources: &[rustix::fd::BorrowedFd<'_>],
     within: Option<Duration>,
 ) -> io::Result<Vec<bool>> {

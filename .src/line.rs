@@ -7,9 +7,11 @@
 //! 2026-09-24, where every technology that needs it already depends
 //! (ADR-0044; open problem 24).
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use crate::error::Result;
+use crate::sharing::Sharing;
 
 /// Where frames go and come from.
 pub trait Line: Send + Sync {
@@ -29,4 +31,26 @@ pub trait Line: Send + Sync {
     /// or a frame began and `timeout` passed before it ended: something
     /// arrived, so a cut frame is an error, never `None`.
     fn receive(&self, timeout: Duration) -> Result<Option<Vec<u8>>>;
+
+    /// `frame` put on the line and the next frame taken off it, nothing
+    /// else written to or read off the line between the two: `None` when
+    /// nothing arrived within `timeout`. By default a [`Line::transmit`]
+    /// and then a [`Line::receive`]; a line several Locations share holds
+    /// itself across both, so an answer reaches only the Location that
+    /// asked (a serial port; ADR-0064, amendment 2026-11-15).
+    ///
+    /// # Errors
+    /// As [`Line::transmit`], then as [`Line::receive`].
+    fn exchange(&self, frame: &[u8], timeout: Duration) -> Result<Option<Vec<u8>>> {
+        self.transmit(frame)?;
+        self.receive(timeout)
+    }
+
+    /// This line on what the Locations of its node share
+    /// ([`crate::Configured::shared_by`]): a serial port takes the one port
+    /// its device has on the node. `None`, as by default, for a line
+    /// nothing is shared on, which stays as it is.
+    fn shared_on(&self, _sharing: &Arc<dyn Sharing>) -> Option<Arc<dyn Line>> {
+        None
+    }
 }

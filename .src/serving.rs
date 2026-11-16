@@ -35,7 +35,9 @@
 //! node's `[tuning] receive_turn` — every read of it waiting only what is
 //! left ([`crate::deadline`]). A caller that stops mid-exchange, or sends a
 //! byte inside each read's wait, is turned away at the deadline and the
-//! others are served; until then it held them all.
+//! others are served; until then it held them all. The turn is counted on
+//! the Clock the serving wait was handed, the node's
+//! ([`Serving::timed_by`]; ADR-0068, amendment 2026-11-15).
 //!
 //! The wait itself — one readiness wait over the listener and every kept
 //! connection, a new peer accepted and kept — is `serving/wait.rs`'s.
@@ -43,9 +45,10 @@
 mod wait;
 
 use std::net::{SocketAddr, TcpListener, TcpStream};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 use xcore::lock::Locked;
+use xcore::{Clock, SystemClock};
 
 use crate::answer::{Busy, Freed};
 use crate::deadline::{Deadline, Within};
@@ -128,19 +131,31 @@ pub struct Serving<C> {
     turned: Mutex<Turned>,
     /// The most one caller's turn takes.
     turn: Duration,
+    /// What a turn is counted on.
+    clock: Arc<dyn Clock>,
 }
 
 impl<C: Open> Serving<C> {
-    /// Nothing bound, nothing open, each turn taking at most [`TURN`].
+    /// Nothing bound, nothing open, each turn taking at most [`TURN`] on the
+    /// operating system's clock.
     #[must_use]
-    pub const fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             listener: Kept::new(),
             open: Mutex::new(Vec::new()),
             freed: OnceLock::new(),
             turned: Mutex::new(Turned::new()),
             turn: TURN,
+            clock: Arc::new(SystemClock),
         }
+    }
+
+    /// Each caller's turn counted on `clock`, the node's: what a
+    /// technology's `Configured::timed_by` hands its serving wait.
+    #[must_use]
+    pub fn timed_by(mut self, clock: &Arc<dyn Clock>) -> Self {
+        self.clock = Arc::clone(clock);
+        self
     }
 
     /// Each caller's turn taking at most `turn`, every read of it waiting
@@ -229,7 +244,7 @@ impl<C: Open> Serving<C> {
             Ok(made)
         };
         let mut open = self.open.locked();
-        let waiting = Wait::new(listener, freed, &self.turned, timeout);
+        let waiting = Wait::new(listener, freed, &self.turned, &self.clock, timeout);
         loop {
             // What is already read goes first: no socket will say so.
             let Some(at) = open
@@ -278,10 +293,10 @@ impl<C: Open> Default for Serving<C> {
 
 /// A copy of a transport binds and keeps its own, as [`Kept`] does.
 /// Its connections are its own too, so what tells them freed is; its
-/// turns are as long.
+/// turns are as long, on the same Clock.
 impl<C: Open> Clone for Serving<C> {
     fn clone(&self) -> Self {
-        Self::new().turning_within(self.turn)
+        Self::new().turning_within(self.turn).timed_by(&self.clock)
     }
 }
 
