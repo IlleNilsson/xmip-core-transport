@@ -72,7 +72,7 @@
 //!                       once, until let go: one server several nodes race at
 //!
 //! the near ends         what a Receive Location keeps between its receives
-//!   kept.rs             a listener or socket bound on the first receive and kept
+//!   kept.rs             a listener or socket bound as its Location opens, and kept
 //!   serving.rs          a kept listener and the connections its peers keep open on
 //!                       it, the next exchange taken from whichever speaks first; a
 //!                       caller whose own connection fails turned away, never the

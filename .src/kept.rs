@@ -1,5 +1,5 @@
-//! A listener or a socket a Receive Location binds once and keeps: bound on
-//! its first receive, and every receive after takes from the same one.
+//! A listener or a socket a Receive Location binds once and keeps: bound as
+//! its transport is opened, and every receive takes from the same one.
 //!
 //! Until 2026-09-27 thirty technologies bound a new listener in every
 //! `receive`, took one exchange and dropped it, so between two receives
@@ -10,6 +10,16 @@
 //! the technology's own: a TCP listener, a datagram socket, a Unix domain
 //! socket's listener, a named pipe. How it is bound is the technology's
 //! `bind`, handed in; that it is bound once is here.
+//!
+//! **Bound at open** (the owner, 2026-11-16, *Bind at open*). The
+//! technology binds it in its [`crate::Configured::listening`], which the
+//! runtime calls as it opens a Receive Location's transport at startup
+//! phase 9, so a node listens when it says it started, and a port that is
+//! taken refuses its start. A receive takes from it ([`Kept::listener`])
+//! and never binds. Until 2026-11-16 the first receive bound it, on the
+//! Location's own thread after the node had started, and a caller that
+//! connected the moment the start returned could be refused (open problem
+//! 71).
 //!
 //! A loopback far end is not this: it is stood up for one exchange and
 //! consumed ([`crate::listening`], [`crate::bound`]).
@@ -41,8 +51,9 @@ impl<L> Kept<L> {
 
     /// The kept listener, bound by `bind` where nothing is yet — the
     /// listener and the address it is bound at, as every technology's
-    /// `bind` hands back. A bind that failed is tried again on the next
-    /// call.
+    /// `bind` hands back: what its [`crate::Configured::listening`] calls
+    /// as its Location's transport is opened. A bind that failed is tried
+    /// again on the next call.
     ///
     /// # Errors
     /// As `bind`, where it is called and fails.
@@ -58,7 +69,36 @@ impl<L> Kept<L> {
         Ok(&self.bound.get_or_init(|| pair).0)
     }
 
-    /// Where the kept listener is bound: `None` before the first receive.
+    /// [`Kept::bound`] by `bind`, and where: what a technology keeping one
+    /// answers as its `Configured::listening`.
+    ///
+    /// # Errors
+    /// As `bind`, where it is called and fails.
+    pub fn listening(&self, bind: impl FnOnce() -> Result<(L, String)>) -> Result<Option<&str>> {
+        self.bound(bind)?;
+        Ok(self.address())
+    }
+
+    /// The kept listener, as [`Kept::bound`] bound it: what every receive
+    /// takes from, binding nothing.
+    ///
+    /// # Errors
+    /// Where nothing is bound: a transport no one opened to listen
+    /// ([`crate::Configured::listening`]). Permanent, since asking again
+    /// binds nothing either.
+    pub fn listener(&self) -> Result<&L> {
+        self.bound
+            .get()
+            .map(|(listener, _)| listener)
+            .ok_or_else(|| {
+                crate::TransportError::permanent(
+                    "nothing listens: a Receive Location's listener is bound as its transport is \
+                 opened (Configured::listening), and this one was not",
+                )
+            })
+    }
+
+    /// Where the kept listener is bound: `None` until it is.
     #[must_use]
     pub fn address(&self) -> Option<&str> {
         self.bound.get().map(|(_, address)| address.as_str())
@@ -72,7 +112,7 @@ impl<L> Default for Kept<L> {
 }
 
 /// A copy of a transport is a configuration, not a second owner of its
-/// listener: it binds its own on its first receive.
+/// listener: it binds its own as it is opened to listen.
 impl<L> Clone for Kept<L> {
     fn clone(&self) -> Self {
         Self::new()
@@ -88,13 +128,13 @@ impl<L> fmt::Debug for Kept<L> {
 }
 
 /// Hold a receiver to its kept listener: `rounds` payloads sent to
-/// `address` — where the first receive, or the receiver's own `bound`,
-/// bound it — one after another by `send` on a thread of its own, and every
-/// one taken by `receiver.receive()` on this one, in order, and accepted. A receiver that
-/// bound anew would listen somewhere else, and the sends it left behind
-/// would never arrive; one that dropped its listener between receives
-/// would refuse the sends that came between. For a technology's tests,
-/// `test-support` from a dev-dependency.
+/// `address` — where the receiver's `listening` bound it — one after
+/// another by `send` on a thread of its own, and every one taken by
+/// `receiver.receive()` on this one, in order, and accepted. A receiver
+/// that bound anew would listen somewhere else, and the sends it left
+/// behind would never arrive; one that dropped its listener between
+/// receives would refuse the sends that came between. For a technology's
+/// tests, `test-support` from a dev-dependency.
 ///
 /// # Panics
 /// Where a send or a receive failed, or what arrived is not what was sent.
@@ -137,6 +177,7 @@ mod tests {
     use super::*;
     use crate::socket;
     use std::io::{Read, Write};
+    use std::net::TcpListener;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
 
@@ -201,5 +242,20 @@ mod tests {
         assert_eq!(kept.address(), Some("here"));
         assert_eq!(kept.clone().address(), None);
         assert_eq!(format!("{kept:?}"), r#"Kept { address: Some("here") }"#);
+    }
+
+    #[test]
+    fn a_receive_takes_what_the_open_bound_and_binds_nothing() {
+        // Until 2026-11-16 the first receive bound the listener, after the
+        // node had started (open problem 71).
+        let kept: Kept<TcpListener> = Kept::new();
+        let unbound = kept.listener().expect_err("nothing bound");
+        assert!(!unbound.retryable, "{unbound}");
+        assert!(unbound.message.contains("listening"), "{unbound}");
+        let bound = kept
+            .bound(|| socket::bind_tcp("127.0.0.1:0"))
+            .expect("bound");
+        let taken = kept.listener().expect("the one bound");
+        assert!(std::ptr::eq(bound, taken));
     }
 }

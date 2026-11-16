@@ -19,13 +19,24 @@ use crate::error::{Result, TransportError, classify};
 /// what `127.0.0.1:0` became.
 ///
 /// # Errors
-/// Where the address is taken, malformed, or not permitted.
+/// Where the address is taken, malformed, or not permitted, naming it.
 pub fn bind_tcp(bind: &str) -> Result<(TcpListener, String)> {
-    let listener = TcpListener::bind(bind).map_err(|e| classify("binding the listener", &e))?;
+    let listener = TcpListener::bind(bind).map_err(|e| unbound("the listener", bind, &e))?;
     let local = listener
         .local_addr()
         .map_err(|e| classify("reading the bound address", &e))?;
     Ok((listener, local.to_string()))
+}
+
+/// Why `what` could not be bound at `bind`, naming the address — and the
+/// port, where another holds it — so a node's start refused at phase 9
+/// says which (the owner, 2026-11-16, *Bind at open*).
+fn unbound(what: &str, bind: &str, error: &io::Error) -> TransportError {
+    let taken = match (error.kind(), bind.rsplit_once(':')) {
+        (ErrorKind::AddrInUse, Some((_, port))) => format!(": port {port} is taken"),
+        _ => String::new(),
+    };
+    classify(&format!("binding {what} at {bind}{taken}"), error)
 }
 
 /// Accept one connection within `timeout`, with `timeout` on its reads and
@@ -323,7 +334,7 @@ pub fn finish(stream: &TcpStream) -> Result<()> {
 /// # Errors
 /// Where the address is taken, malformed, or not permitted.
 pub fn bind_udp(bind: &str, timeout: Option<Duration>) -> Result<(UdpSocket, String)> {
-    let socket = UdpSocket::bind(bind).map_err(|e| classify("binding the socket", &e))?;
+    let socket = UdpSocket::bind(bind).map_err(|e| unbound("the socket", bind, &e))?;
     if let Some(timeout) = timeout {
         socket
             .set_read_timeout(Some(timeout))
@@ -405,6 +416,26 @@ mod tests {
         assert!(
             waited >= Duration::from_millis(150),
             "gave up after {waited:?}, before it had waited"
+        );
+    }
+
+    #[test]
+    fn a_taken_port_is_refused_naming_the_address_and_the_port() {
+        // What a node's start refused at phase 9 says of a Receive
+        // Location whose port another holds (the owner, 2026-11-16).
+        let (_holder, address) = bind_tcp("127.0.0.1:0").expect("bind");
+        let port = address.rsplit_once(':').expect("a port").1;
+        let refused = bind_tcp(&address).expect_err("taken");
+        let said = format!("binding the listener at {address}: port {port} is taken: ");
+        assert!(refused.message.starts_with(&said), "{refused}");
+        let datagrams = UdpSocket::bind("127.0.0.1:0").expect("bind");
+        let at = datagrams.local_addr().expect("its address").to_string();
+        let refused = bind_udp(&at, None).expect_err("taken");
+        assert!(
+            refused
+                .message
+                .starts_with(&format!("binding the socket at {at}: port ")),
+            "{refused}"
         );
     }
 
