@@ -109,9 +109,9 @@
 [submodule "postgresql"]
 	path = postgresql
 	url = https://github.com/IlleNilsson/xmip-core-transport-postgresql.git
-[submodule "s3"]
-	path = s3
-	url = https://github.com/IlleNilsson/xmip-core-transport-s3.git
+[submodule "aws-s3"]
+	path = aws-s3
+	url = https://github.com/IlleNilsson/xmip-core-transport-aws-s3.git
 [submodule "azure-blob"]
 	path = azure-blob
 	url = https://github.com/IlleNilsson/xmip-core-transport-azure-blob.git
