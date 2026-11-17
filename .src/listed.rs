@@ -141,7 +141,7 @@ mod tests {
             },
             most,
             refused,
-            |name| format!("s3://inbox/{name}"),
+            |name| format!("aws-s3://inbox/{name}"),
             move |name| {
                 let mut held = getting.lock().expect("lock");
                 held.1.push(format!("get {name}"));
@@ -171,7 +171,7 @@ mod tests {
         assert!(store.lock().expect("lock").1.is_empty(), "nothing got yet");
         let one = arrived.next().expect("a.edi");
         assert!(one.defers());
-        assert_eq!(one.origin_uri, "s3://inbox/a.edi");
+        assert_eq!(one.origin_uri, "aws-s3://inbox/a.edi");
         assert_eq!(one.taken().expect("taken").bytes, b"one");
         arrived.next().expect("b.edi").failed().expect("left");
         arrived
@@ -188,7 +188,7 @@ mod tests {
         let again = receive(&store, &refused).expect("listed again");
         assert_eq!(
             names(&again),
-            ["s3://inbox/b.edi"],
+            ["aws-s3://inbox/b.edi"],
             "the failed one, not the refused one"
         );
         assert!(
@@ -210,7 +210,7 @@ mod tests {
             "one left in the store"
         );
         let rest = receive_up_to(&store, 2, &refused).expect("listed again");
-        assert_eq!(names(&rest), ["s3://inbox/c.edi"]);
+        assert_eq!(names(&rest), ["aws-s3://inbox/c.edi"]);
     }
 
     #[test]
@@ -226,7 +226,7 @@ mod tests {
             .0
             .insert("a.edi".into(), (b"two".to_vec(), "2".into()));
         let again = receive(&store, &refused).expect("listed");
-        assert_eq!(names(&again), ["s3://inbox/a.edi"], "another ETag");
+        assert_eq!(names(&again), ["aws-s3://inbox/a.edi"], "another ETag");
     }
 
     #[test]

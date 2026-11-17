@@ -407,10 +407,10 @@ mod tests {
 
     #[test]
     fn an_artifact_is_addressed_in_its_own_protocols_terms() {
-        let artifact = Artifact::new("s3://bucket/in/order-1.edi");
+        let artifact = Artifact::new("aws-s3://bucket/in/order-1.edi");
 
-        assert_eq!(artifact.address(), "s3://bucket/in/order-1.edi");
-        assert_eq!(artifact.to_string(), "s3://bucket/in/order-1.edi");
+        assert_eq!(artifact.address(), "aws-s3://bucket/in/order-1.edi");
+        assert_eq!(artifact.to_string(), "aws-s3://bucket/in/order-1.edi");
     }
 
     #[test]
