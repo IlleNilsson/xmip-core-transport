@@ -20,8 +20,20 @@ pub type Result<T> = std::result::Result<T, TransportError>;
 ///
 /// A blip is retryable; a missing file or a refused permission is not. Getting
 /// this wrong is how a platform either gives up too early or retries forever.
+///
+/// A [`TransportError`] an `io::Error` carries — a body's fetch failed, and
+/// its reader handed the failure on as `std::io::Read` must — is judged
+/// already, where it was met: it keeps its judgment and its message, said
+/// from `context`. Until 2026-11-19 it was judged by its kind, `Other`, so
+/// every one came back permanent and its own judgment stayed in its text.
 #[must_use]
 pub fn classify(context: &str, error: &io::Error) -> TransportError {
+    if let Some(judged) = error
+        .get_ref()
+        .and_then(|inner| inner.downcast_ref::<TransportError>())
+    {
+        return judged.clone().at(context);
+    }
     TransportError {
         message: format!("{context}: {}", said(error)),
         retryable: passes(error.kind()) || exhausted(error),
@@ -249,6 +261,23 @@ mod tests {
         assert!(TransportError::from(refused).retryable);
         assert!(!TransportError::from(missing).retryable);
         assert!(!TransportError::from(net::NetError::new("not an HTTP answer")).retryable);
+    }
+
+    #[test]
+    fn a_transport_failure_read_through_a_body_keeps_its_judgment() {
+        // A body's fetch fails as a TransportError and its reader hands it
+        // on as an io::Error. Until 2026-11-19 it was judged by that kind,
+        // Other: every one came back permanent, its own judgment in its text.
+        let changed = io::Error::other(TransportError::retryable("changed since it was listed"));
+        assert_eq!(
+            classify("reading what arrived", &changed),
+            TransportError::retryable("reading what arrived: changed since it was listed")
+        );
+        let refused = io::Error::other(TransportError::permanent("403 AuthenticationFailed"));
+        assert_eq!(
+            classify("reading", &refused).to_string(),
+            "reading: 403 AuthenticationFailed (not retryable)"
+        );
     }
 
     #[test]
