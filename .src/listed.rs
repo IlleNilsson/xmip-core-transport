@@ -1,6 +1,7 @@
 //! A receive from a store of named objects: what is listed, each fetched
-//! when the runtime first reads it, deleted once the cycle accepted it,
-//! left and remembered once the cycle refused it.
+//! as it was listed when the runtime first reads it, deleted as it was
+//! listed once the cycle accepted it, left and remembered once the cycle
+//! refused it.
 //!
 //! An object store — an S3 bucket, an Azure Blob container, a Google
 //! Cloud Storage bucket — holds what was dropped under a name until it is
@@ -9,27 +10,55 @@
 //! [`Arrived`] whose body `GET`s it on its first read ([`fetched`]), so a
 //! receive that lists a hundred objects holds none of them in memory and
 //! one never read is never fetched. Its acknowledgement deletes it on
-//! [`Verdict::Accepted`] only. A refusal is not a consumption: a Stream
-//! refused at a transport gate was never written to the Ledger, so the
-//! object is the only copy, and a store has no place for a refused one. On
-//! [`Verdict::Refused`] it is left where it lies and remembered with the
-//! stamp its listing gave it — its `ETag` — and no receive lists it again
-//! while it lies so ([`Refused`]); one written again under its name is a
-//! new arrival. On [`Verdict::Failed`] it is left, and the next receive
-//! lists and gets it again: at least once, never a loss. What a technology
-//! lists, gets and deletes with is its own, handed in.
+//! [`Verdict::Accepted`] only.
+//!
+//! The get and the delete hold to the object as it was listed: each names
+//! the stamp its listing gave it as the store's precondition — S3's and
+//! Azure Blob's `ETag` in `If-Match`, Google Cloud Storage's generation in
+//! `ifGenerationMatch` — and the store answers [`AsListed::Changed`] where
+//! it was written again or deleted since, for no extra request. A body
+//! changed so is not read: its read fails, the cycle fails, nothing is
+//! deleted, and the next listing takes what lies there now as a new
+//! arrival. An accepted object changed so is done with: the delete leaves
+//! what lies there now for the next listing, and one deleted since is gone
+//! already. So an object written again under its name after it was listed
+//! is neither read under the old stamp nor deleted unread.
+//!
+//! A refusal is not a consumption: a Stream refused at a transport gate was
+//! never written to the Ledger, so the object is the only copy, and a store
+//! has no place for a refused one. On [`Verdict::Refused`] it is left where
+//! it lies and remembered with the stamp its listing gave it, and no
+//! receive lists it again while it lies so ([`Refused`]); one written again
+//! under its name is a new arrival. On [`Verdict::Failed`] it is left, and
+//! the next receive lists and gets it again: at least once, never a loss.
+//! What a technology lists, gets and deletes with is its own, handed in.
 
 use std::sync::Arc;
 
 use crate::acknowledgement::{Acknowledgement, Verdict};
 use crate::arrived::Arrived;
 use crate::body::fetched;
-use crate::error::{Result, protocol_error};
+use crate::error::{Result, TransportError, protocol_error};
 use crate::refused::Refused;
 
-/// An object as a listing names it: its name and its stamp, the `ETag`
-/// that changes whenever it is written again.
+/// An object as a listing names it: its name and its stamp, which changes
+/// whenever it is written again — an `ETag`, Google Cloud Storage's
+/// generation.
 pub type Object = (String, String);
+
+/// What a store answers when asked for an object as it was listed: under
+/// its name, on the condition that it still bears the stamp the listing
+/// gave it.
+pub enum AsListed<T> {
+    /// It still lies as listed, and this is what was asked of it.
+    Held(T),
+    /// It was written again or deleted since it was listed: nothing was
+    /// done to it.
+    Changed,
+}
+
+/// Why a body the store no longer holds as listed is not read.
+const CHANGED: &str = "changed since it was listed: the next listing takes it as a new arrival";
 
 /// Where an XML listing names its objects: the element each object is, and
 /// the elements inside it that hold its name and its stamp. S3 lists
@@ -63,9 +92,11 @@ impl Listing {
 
 /// At most `most` of the objects `list` lists and `refused` does not hold as
 /// they lie, each an arrival from `origin` of its name whose body `get`
-/// fetches on its first read and whose acknowledgement `delete`s it on
-/// acceptance, leaves it and remembers it in `refused` on refusal, and
-/// leaves it on failure. The rest stay in the store for a later listing.
+/// fetches by its name and listed stamp on its first read, failing where
+/// the store answers it changed, and whose acknowledgement `delete`s it by
+/// the same on acceptance, done where it changed, leaves it and remembers
+/// it in `refused` on refusal, and leaves it on failure. The rest stay in
+/// the store for a later listing.
 ///
 /// # Errors
 /// As `list`: nothing is fetched or deleted here.
@@ -78,8 +109,8 @@ pub fn listed<G, D>(
     delete: D,
 ) -> Result<Vec<Arrived>>
 where
-    G: Fn(&str) -> Result<Vec<u8>> + Send + Sync + 'static,
-    D: Fn(&str) -> Result<()> + Send + Sync + 'static,
+    G: Fn(&str, &str) -> Result<AsListed<Vec<u8>>> + Send + Sync + 'static,
+    D: Fn(&str, &str) -> Result<AsListed<()>> + Send + Sync + 'static,
 {
     let (get, delete) = (Arc::new(get), Arc::new(delete));
     Ok(refused
@@ -88,11 +119,18 @@ where
         .take(most)
         .map(|(name, stamp)| {
             let from = origin(&name);
-            let (fetching, named) = (Arc::clone(&get), name.clone());
-            let body = fetched(move || fetching(&named));
-            let (delete, deleting) = (Arc::clone(&delete), name.clone());
+            let (fetching, named, as_listed) = (Arc::clone(&get), name.clone(), stamp.clone());
+            let body = fetched(move || match fetching(&named, &as_listed)? {
+                AsListed::Held(bytes) => Ok(bytes),
+                AsListed::Changed => Err(TransportError::retryable(CHANGED)),
+            });
+            let (delete, deleting, as_listed) = (Arc::clone(&delete), name.clone(), stamp.clone());
             let told = Acknowledgement::deferred(move |verdict| match verdict {
-                Verdict::Accepted => delete(&deleting),
+                // Gone since, or written again: what lies there now is the
+                // next listing's, and what was accepted is done with.
+                Verdict::Accepted => match delete(&deleting, &as_listed)? {
+                    AsListed::Held(()) | AsListed::Changed => Ok(()),
+                },
                 Verdict::Refused(_) | Verdict::Failed => Ok(()),
             });
             Arrived::new(from, body, refused.remembering(name, stamp, told)).detected()
@@ -105,10 +143,13 @@ mod tests {
     use super::*;
     use crate::acknowledgement::Refusal;
     use std::collections::BTreeMap;
+    use std::io::Read;
     use std::sync::Mutex;
 
-    /// The objects held, by name, each with its body and its `ETag`, and
-    /// what was asked of the store.
+    /// The objects held, by name, each with its body and its stamp, and
+    /// what was asked of the store. A get or a delete asking a stamp the
+    /// object no longer bears, or an object gone, is answered `Changed`, as
+    /// the three vendors' preconditions answer.
     type Store = Arc<Mutex<(BTreeMap<String, (Vec<u8>, String)>, Vec<String>)>>;
 
     /// A store holding `objects`, each tagged `"1"`.
@@ -142,21 +183,38 @@ mod tests {
             most,
             refused,
             |name| format!("aws-s3://inbox/{name}"),
-            move |name| {
+            move |name, stamp| {
                 let mut held = getting.lock().expect("lock");
                 held.1.push(format!("get {name}"));
-                held.0
-                    .get(name)
-                    .map(|(bytes, _)| bytes.clone())
-                    .ok_or_else(|| protocol_error("no such object"))
+                Ok(match held.0.get(name) {
+                    Some((bytes, tag)) if tag == stamp => AsListed::Held(bytes.clone()),
+                    _ => AsListed::Changed,
+                })
             },
-            move |name| {
+            move |name, stamp| {
                 let mut held = deleting.lock().expect("lock");
                 held.1.push(format!("delete {name}"));
+                if held.0.get(name).is_none_or(|(_, tag)| tag != stamp) {
+                    return Ok(AsListed::Changed);
+                }
                 held.0.remove(name);
-                Ok(())
+                Ok(AsListed::Held(()))
             },
         )
+    }
+
+    /// `name` written again in `store`, holding `bytes` under `stamp`.
+    fn written(store: &Store, name: &str, bytes: &[u8], stamp: &str) {
+        let mut held = store.lock().expect("lock");
+        held.0.insert(name.into(), (bytes.to_vec(), stamp.into()));
+    }
+
+    /// What `arrived`'s body reads, with the acknowledgement it is told by.
+    fn read(arrived: Arrived) -> (Vec<u8>, Acknowledgement) {
+        let (_, mut body, told) = arrived.into_parts();
+        let mut bytes = Vec::new();
+        body.read_to_end(&mut bytes).expect("read as listed");
+        (bytes, told)
     }
 
     fn names(arrived: &[Arrived]) -> Vec<String> {
@@ -220,13 +278,53 @@ mod tests {
         let arrived = receive(&store, &refused).expect("listed").remove(0);
         arrived.refused(Refusal::Forbidden).expect("left");
         assert!(receive(&store, &refused).expect("listed").is_empty());
-        store
-            .lock()
-            .expect("lock")
-            .0
-            .insert("a.edi".into(), (b"two".to_vec(), "2".into()));
+        written(&store, "a.edi", b"two", "2");
         let again = receive(&store, &refused).expect("listed");
         assert_eq!(names(&again), ["aws-s3://inbox/a.edi"], "another ETag");
+    }
+
+    #[test]
+    fn a_replacement_between_read_and_acceptance_stays_for_the_next_listing() {
+        let store = store(&[("a.edi", b"one")]);
+        let refused = Refused::default();
+        let (bytes, told) = read(receive(&store, &refused).expect("listed").remove(0));
+        assert_eq!(bytes, b"one");
+        written(&store, "a.edi", b"two", "2");
+        told.acknowledge(Verdict::Accepted)
+            .expect("the one read is done with");
+        let again = receive(&store, &refused).expect("listed again").remove(0);
+        assert_eq!(again.taken().expect("a new arrival").bytes, b"two");
+    }
+
+    #[test]
+    fn a_replacement_between_listing_and_first_read_is_not_read_under_the_old_stamp() {
+        let store = store(&[("a.edi", b"one")]);
+        let refused = Refused::default();
+        let arrived = receive(&store, &refused).expect("listed").remove(0);
+        written(&store, "a.edi", b"two", "2");
+        let error = arrived.taken().expect_err("not the object listed");
+        assert!(error.message.contains(CHANGED), "{error}");
+        assert!(error.retryable, "the next listing takes it: {error}");
+        assert_eq!(
+            store.lock().expect("lock").1,
+            ["get a.edi"],
+            "nothing deleted"
+        );
+        let again = receive(&store, &refused).expect("listed again").remove(0);
+        assert_eq!(again.taken().expect("a new arrival").bytes, b"two");
+    }
+
+    #[test]
+    fn an_object_gone_before_acceptance_is_told_done() {
+        let store = store(&[("a.edi", b"one")]);
+        let (_, told) = read(
+            receive(&store, &Refused::default())
+                .expect("listed")
+                .remove(0),
+        );
+        store.lock().expect("lock").0.clear();
+        told.acknowledge(Verdict::Accepted)
+            .expect("nothing left to delete is done");
     }
 
     #[test]
@@ -262,17 +360,22 @@ mod tests {
             usize::MAX,
             &Refused::default(),
             str::to_string,
-            |_| Ok(Vec::new()),
-            |_| Ok(()),
+            |_, _| Ok(AsListed::Held(Vec::new())),
+            |_, _| Ok(AsListed::Held(())),
         )
         .expect_err("not listed");
         assert_eq!(error.message, "403 AccessDenied");
-        let store = store(&[("a.edi", b"one")]);
-        let arrived = receive(&store, &Refused::default())
-            .expect("listed")
-            .remove(0);
-        store.lock().expect("lock").0.clear();
-        let error = arrived.taken().expect_err("gone before it was read");
-        assert!(error.message.contains("no such object"), "{error}");
+        let arrived = listed(
+            || Ok(vec![("a.edi".into(), "1".into())]),
+            usize::MAX,
+            &Refused::default(),
+            str::to_string,
+            |_, _| Err(protocol_error("503 SlowDown")),
+            |_, _| panic!("a body never read is never accepted"),
+        )
+        .expect("listed")
+        .remove(0);
+        let error = arrived.taken().expect_err("its get failed");
+        assert!(error.message.contains("503 SlowDown"), "{error}");
     }
 }

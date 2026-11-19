@@ -39,8 +39,8 @@
 //!   body.rs             a body opened by its first read, or pulled a chunk at a time
 //!   contiguous.rs       a place in an ordered log that only a contiguous acceptance moves
 //!   listed.rs           a receive from an object store: its XML listing scanned, each
-//!                       fetched when read, deleted once accepted, left and remembered
-//!                       once refused
+//!                       fetched as listed when read, deleted as listed once accepted,
+//!                       left and remembered once refused
 //!   refused.rs          what a Location refused and left where it lies, each by its name
 //!                       and stamp, left out of a listing while it lies as it was refused
 //!   answer.rs           the answer a peer waits for after the cycle: on its connection,
