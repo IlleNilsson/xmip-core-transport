@@ -140,12 +140,21 @@ pub trait Configured: Transport + Sized {
     /// the setting; then whatever [`Configured::configured`] refuses.
     fn open(address: &str, side: Applies, given: &[(String, Given)]) -> Result<Self> {
         let read = Self::SETTINGS.read(side, given)?;
-        let built = Self::configured(Self::own_terms(address), &read)?;
+        Ok(Self::configured(Self::own_terms(address), &read)?.finished(&read, side))
+    }
+
+    /// What [`Configured::open`] does with this technology once it is built
+    /// from the settings `read`: the Location's [`TIMEOUT`] where it read
+    /// one, and its side. The one writer of that step: a test that builds a
+    /// technology on what its address cannot give it — a simulated bus where
+    /// a build opens the kernel's — finishes it here too.
+    #[must_use]
+    fn finished(self, read: &Read, side: Applies) -> Self {
         let built = match read.optional_duration(TIMEOUT) {
-            Some(timeout) => built.timing_out_after(timeout),
-            None => built,
+            Some(timeout) => self.timing_out_after(timeout),
+            None => self,
         };
-        Ok(built.sided(side))
+        built.sided(side)
     }
 
     /// Where this technology keeps how long it waits on a far end that
