@@ -82,8 +82,7 @@ impl Pinned {
                  for it{}: refused, as a key not its own",
                 self.file
                     .as_deref()
-                    .map(|file| format!(" in {}", file.display()))
-                    .unwrap_or_default()
+                    .map_or_default(|file| format!(" in {}", file.display()))
             ))),
             None => {
                 self.append(name, fingerprint)?;
@@ -167,9 +166,8 @@ mod tests {
 
     #[test]
     fn pins_kept_in_a_file_hold_a_far_end_after_a_restart() {
-        let directory = std::env::temp_dir().join(format!("xmip-pinned-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&directory);
-        let file = directory.join("pinned-keys");
+        let folder = file::temporary::Folder::new("pinned");
+        let file = folder.join("pins").join("pinned-keys");
         Pinned::kept_at(&file)
             .hold("sftp://host:22", "SHA256:one")
             .expect("pinned");
@@ -183,6 +181,5 @@ mod tests {
             std::fs::read_to_string(&file).expect("kept"),
             "SHA256:one sftp://host:22\n"
         );
-        let _ = std::fs::remove_dir_all(&directory);
     }
 }
