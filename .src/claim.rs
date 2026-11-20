@@ -112,9 +112,7 @@ impl Claimed {
 /// | family | native claim |
 /// | --- | --- |
 /// | file, FTP, FTPS, SFTP | a turn, then a rename to a name recording the node and the time |
-/// | Azure Blob | a renewable blob lease |
-/// | S3 | `PUT` with `If-None-Match: *` on a claim key |
-/// | Google Cloud Storage | a generation precondition |
+/// | S3, Azure Blob, Google Cloud Storage | a claim beside the object, written only where none lies (`crate::listed`) |
 /// | POP3 | the session locks the maildrop |
 /// | SQL | `SELECT … FOR UPDATE SKIP LOCKED` |
 ///
@@ -150,11 +148,13 @@ pub trait ResourceClaim: Send + Sync {
 
 /// A protocol with artifacts whose claim is not built yet. ADR-0024 clause 5.
 ///
-/// IMAP, which offers no exclusive step at all, and the object stores,
-/// databases and shares whose own exclusive step is still to be taken
-/// (ADR-0024, amendment 2026-10-13, which records each one's answer). The
-/// file family — file, FTP, FTPS, SFTP — claims through [`Claiming`] since
-/// that amendment, and answers its own claim.
+/// IMAP, which offers no exclusive step at all, and the databases and
+/// shares whose own exclusive step is still to be taken (ADR-0024,
+/// amendment 2026-10-13, which records each one's answer). The file family
+/// — file, FTP, FTPS, SFTP — claims through [`Claiming`] since that
+/// amendment, and the object stores — S3, Azure Blob, Google Cloud Storage
+/// — through `crate::listed::Claims` since 2026-11-20; each answers its
+/// own claim.
 ///
 /// Saying this once in a type beats every such transport writing the same three
 /// stubs and one of them quietly returning something else.

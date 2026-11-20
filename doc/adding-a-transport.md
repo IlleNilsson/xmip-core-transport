@@ -35,7 +35,8 @@ Location's pool and the node have, one at least. Take no more; leave the
 rest at the far end — a file unclaimed, a message on its broker, a row in
 its table — for a later receive. The shared machinery takes the bound for
 you: the file family's claim (`claim::Claiming::take`), an object store's
-listing (`listed::listed`), a SQL query's rows (`sql::accept::arrivals`), a
+listing and claim (`listed::Claims::listed`, over the calls a store
+implements, `listed::Store`), a SQL query's rows (`sql::accept::arrivals`), a
 kept subscription drained (`pool::delivered`). A protocol that hands over
 one arrival a receive takes one whatever `most` says.
 
