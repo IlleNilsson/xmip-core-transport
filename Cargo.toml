@@ -97,6 +97,8 @@ net = { package = "xmip-core-library-net", git = "https://github.com/IlleNilsson
 # A round's spread and spin (`xcore::latency`), which latency.rs measures
 # its plain wake with.
 xcore = { package = "xmip-core", git = "https://github.com/IlleNilsson/xmip-core", branch = "main", features = ["test-support"] }
+# A test's own temporary folder (`file::temporary`); for the tests only.
+file = { package = "xmip-core-library-file", git = "https://github.com/IlleNilsson/xmip-core-library-file", branch = "main", features = ["test-support"] }
 
 [profile.dev.package."*"]
 opt-level = 3

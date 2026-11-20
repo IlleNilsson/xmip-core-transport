@@ -108,7 +108,7 @@ impl Guard {
             .set_read_timeout(read)
             .and_then(|()| guarded.sock.set_write_timeout(write))
             .map_err(|e| waits("putting the Location's wait back", &e))?;
-        let observed = peer.map(|peer| observed(&peer)).unwrap_or_default();
+        let observed = peer.map_or_default(|peer| observed(&peer));
         Ok((guarded, observed))
     }
 }
