@@ -185,8 +185,9 @@ pub trait Configured: Transport + Sized {
     /// gives every transport its node's identity once, as it builds it,
     /// `node.rs`). A technology
     /// that records at the far end who holds what — a claimed file's name
-    /// (ADR-0024, amendment 2026-09-26) — keeps it, and returns there what
-    /// the node held before it last stopped. Nothing is kept by default.
+    /// (ADR-0024, amendment 2026-09-26), an object's claim (amendment
+    /// 2026-11-20) — keeps it, and returns there what the node held before
+    /// it last stopped. Nothing is kept by default.
     ///
     /// # Errors
     /// Where the technology could not return what the node held before:

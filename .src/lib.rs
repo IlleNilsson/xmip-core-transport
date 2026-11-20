@@ -38,9 +38,11 @@
 //!   together.rs         arrivals a far end settles together, after the last verdict
 //!   body.rs             a body opened by its first read, or pulled a chunk at a time
 //!   contiguous.rs       a place in an ordered log that only a contiguous acceptance moves
-//!   listed.rs           a receive from an object store: its XML listing scanned, each
-//!                       fetched as listed when read, deleted as listed once accepted,
-//!                       left and remembered once refused
+//!   listed.rs           a receive from an object store, over the few calls each store
+//!                       implements: its XML listing scanned, each object won by one
+//!                       node's claim beside it, fetched as listed when read, deleted
+//!                       as listed once accepted, left and remembered once refused, its
+//!                       claim let go however the cycle ends (listed/)
 //!   refused.rs          what a Location refused and left where it lies, each by its name
 //!                       and stamp, left out of a listing while it lies as it was refused
 //!   answer.rs           the answer a peer waits for after the cycle: on its connection,

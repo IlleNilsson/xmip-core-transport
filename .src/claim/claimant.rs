@@ -74,6 +74,16 @@ impl Claimant {
         &self.0
     }
 
+    /// The name a claim of `dropped` by this claimant records, now: the
+    /// dropped name, the mark, the claimant and the time in nanoseconds
+    /// since the Unix epoch. A file family's claimed artifact lies under
+    /// it; an object store's claim holds it (`crate::listed`).
+    #[must_use]
+    pub fn claimed(&self, dropped: &str) -> String {
+        let nanos = SystemClock.unix_timestamp_nanos().max(0);
+        format!("{dropped}{MARK}{}.{nanos}", self.0)
+    }
+
     /// Claim `dropped` at `site` where `still` says, holding its turn, that
     /// it is the artifact that was found: renamed to its claimed name, which
     /// is handed back. `None` where it is not to be had now — its turn is
@@ -92,8 +102,7 @@ impl Claimant {
         if !site.take_turn(&turn, &self.0)? {
             return Ok(None);
         }
-        let nanos = SystemClock.unix_timestamp_nanos().max(0);
-        let claimed = format!("{dropped}{MARK}{}.{nanos}", self.0);
+        let claimed = self.claimed(dropped);
         let renamed = match still() {
             Ok(true) => site.rename(dropped, &claimed),
             other => other,
