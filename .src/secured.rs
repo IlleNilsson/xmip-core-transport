@@ -45,8 +45,11 @@ impl Secured {
     ///
     /// # Errors
     ///
-    /// Permanent where it is not set, saying how to set it; retryable where
-    /// Xmip Storage did not answer.
+    /// Retryable where it is not set, saying how to set it, so the Location
+    /// asks again at its next connection and takes it once it is: a
+    /// permanent refusal stopped every Receive Location whose node started
+    /// before its secret was set (2026-11-21, the first real node driven);
+    /// retryable too where Xmip Storage did not answer.
     pub fn secret(&self) -> Result<Secret> {
         let read = self
             .secrets
@@ -59,7 +62,7 @@ impl Secured {
                 retryable: failure.retryable,
             })?;
         read.ok_or_else(|| {
-            TransportError::permanent(format!(
+            TransportError::retryable(format!(
                 "the secret '{}' is not set: set it with Set-XmipSecret, or xmip secret --set",
                 self.name
             ))
@@ -161,7 +164,7 @@ mod tests {
         let secured = kept.secured("partner-x");
         let login = Login::new("orders", "");
         let refused = logged_in(&login, Some(&secured), "ftp").expect_err("not set");
-        assert!(!refused.retryable);
+        assert!(refused.retryable, "asked again at the next connection");
         assert!(
             refused.message.contains("'partner-x' is not set"),
             "{refused}"
