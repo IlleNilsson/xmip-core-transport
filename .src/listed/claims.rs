@@ -19,13 +19,18 @@
 //! claim of a node that runs never outlives its cycle for long.
 //!
 //! **A node that died leaves its claims, and lets go of them as it
-//! starts.** At its first listing that reaches the store it reads each
-//! claim listed and deletes every one its own name holds: it is starting,
-//! so whatever it held before, nothing holds now. Only its claimant can
-//! know that. A claim another node's name holds is left whatever its age:
-//! a claim ended by a time limit is a lease inside Xmip, the thing
-//! ADR-0024 retired, and one a slow cycle outlived would let a second node
-//! take an object the first still holds — the twice this claim closes. A
+//! starts.** At each Location's first listing that reaches the store it
+//! reads each claim listed and deletes every one an earlier start of the
+//! node holds: it started again, so whatever an earlier start held,
+//! nothing holds now. Only its claimant can know that. A claim of this
+//! start is left, whichever of its Locations made it: a Location built
+//! while another of the same start receives over the same prefix never
+//! lets go of what that one holds (ADR-0024, amendment 2026-11-22; the
+//! owner, *Do them all*). A claim another node's name holds is left
+//! whatever its age: a claim ended by a time limit is a lease inside Xmip,
+//! the thing ADR-0024 retired, and one a slow cycle outlived would let a
+//! second node take an object the first still holds — the twice this
+//! claim closes. A
 //! node gone for good leaves its objects claimed and in place, never lost,
 //! each claim saying who holds it and since when, as a file family's
 //! claimed file does (ADR-0024, amendment 2026-09-26: the cluster's half
@@ -53,8 +58,8 @@ pub struct Claims {
 
 struct Inner {
     claimant: Claimant,
-    /// Whether what the claimant's name still holds is yet to be let go,
-    /// by the first listing that reaches the store.
+    /// Whether what the claimant's node's earlier starts still hold is yet
+    /// to be let go, by the first listing that reaches the store.
     recovering: AtomicBool,
     refused: Refused<String, String>,
     /// The claims whose deletes the store did not answer: each claim's
@@ -77,9 +82,9 @@ impl Claims {
         Self::built(claimant, false)
     }
 
-    /// Claims made as `claimant`, a node starting: what its name still
-    /// holds is let go by the first listing that reaches the store, so a
-    /// store out of reach as the node starts does not stop it.
+    /// Claims made as `claimant`, a node starting: what its node's earlier
+    /// starts still hold is let go by the first listing that reaches the
+    /// store, so a store out of reach as the node starts does not stop it.
     #[must_use]
     pub fn recovering(claimant: Claimant) -> Self {
         Self::built(claimant, true)
@@ -213,22 +218,24 @@ impl Claims {
         freed
     }
 
-    /// Every claim among `objects` that this claimant's name holds, read
-    /// and deleted as listed: the node is starting, so whatever it held
-    /// before, nothing holds now. Another's claim is read and left. The
-    /// names let go.
+    /// Every claim among `objects` that an earlier start of this
+    /// claimant's node holds, read and deleted as listed: the node started
+    /// again, so whatever an earlier start held, nothing holds now. A claim
+    /// of this start, whichever of its Locations made it, and another
+    /// node's are read and left ([`Claimant::is_earlier_start`]). The names
+    /// let go.
     ///
     /// # Errors
     /// Where the store could not be asked.
     fn recover(&self, store: &dyn Store, objects: &[Object]) -> Result<HashSet<String>> {
-        let mine = self.inner.claimant.as_str();
+        let me = &self.inner.claimant;
         let mut returned = HashSet::new();
         for (claim, stamp) in objects.iter().filter(|(name, _)| is_turn(name)) {
             let AsListed::Held(held) = store.get(claim, stamp)? else {
                 continue;
             };
             let holder = std::str::from_utf8(&held).ok().and_then(claim_of);
-            if holder.is_some_and(|holder| holder.claimant == mine)
+            if holder.is_some_and(|holder| me.is_earlier_start(holder.claimant))
                 && matches!(store.delete(claim, stamp)?, AsListed::Held(()))
             {
                 returned.insert(claim.clone());
@@ -295,17 +302,20 @@ mod tests {
     use super::super::memory::Memory;
     use super::*;
     use crate::acknowledgement::{Acknowledgement, Refusal, Verdict};
-    use crate::node::NodeLocation;
+    use crate::claim::MARK;
+    use crate::node::{NodeLocation, NodeStart};
     use std::io::Read;
 
     const CLAIM: &str = "a.edi.xmip-claim";
 
+    /// A start of the node in `place`, after every start before it.
     fn claimant(place: usize) -> Claimant {
         let node = NodeLocation::new(format!("process-{}/place-{place}", std::process::id()));
-        Claimant::of(&node)
+        Claimant::of(&NodeStart::next(node))
     }
 
-    /// The claims of a Location on the node in `place`.
+    /// The claims of a Location on a start of the node in `place`, after
+    /// every start before it.
     fn node(place: usize) -> Claims {
         Claims::new(claimant(place))
     }
@@ -576,12 +586,13 @@ mod tests {
     #[test]
     fn a_claim_holds_the_name_the_file_familys_claim_records() {
         let store = Memory::holding(&[("in/a.edi", b"one")]);
-        let _held = receive(&store, &node(0)).expect("listed");
+        let claims = node(0);
+        let _held = receive(&store, &claims).expect("listed");
         let held = store.bytes("in/a.edi.xmip-claim").expect("claimed");
         let held = String::from_utf8(held).expect("a name");
         let claim = claim_of(&held).expect("a claimed name");
         assert_eq!(claim.dropped, "in/a.edi");
-        assert_eq!(claim.claimant, claimant(0).as_str());
+        assert_eq!(claim.claimant, claims.claimant().as_str());
     }
 
     #[test]
@@ -652,6 +663,36 @@ mod tests {
         let later = receive(&store, &again).expect("listed");
         assert_eq!(names(&later), ["memory://inbox/b.edi"]);
         assert!(!store.asked().iter().any(|a| a.starts_with("get")), "once");
+    }
+
+    #[test]
+    fn a_location_starting_beside_a_live_one_of_its_start_leaves_its_claims() {
+        let store = Memory::holding(&[("a.edi", b"one")]);
+        // One Location's arrival, held unacknowledged.
+        let first = node(0);
+        let held = receive(&store, &first).expect("listed").remove(0);
+        // Another Location of the same start, starting over the same prefix.
+        let second = Claims::recovering(first.claimant().clone());
+        assert!(
+            receive(&store, &second).expect("listed").is_empty(),
+            "not taken again"
+        );
+        assert!(store.bytes(CLAIM).is_some(), "the live claim is left");
+        assert_eq!(held.taken().expect("the first's").bytes, b"one");
+        assert!(store.names().is_empty(), "the object and its claim gone");
+    }
+
+    #[test]
+    fn a_claim_naming_its_node_alone_is_an_earlier_starts_and_let_go() {
+        let store = Memory::holding(&[("a.edi", b"one")]);
+        let again = Claims::recovering(claimant(0));
+        let (node, _) = again.claimant().as_str().split_once('~').expect("a start");
+        // Written before a claim named the start of its node.
+        let before = format!("a.edi{MARK}{node}.1790000000123456789");
+        store.write(CLAIM, before.as_bytes());
+        let arrived = receive(&store, &again).expect("listed").remove(0);
+        assert_eq!(arrived.taken().expect("received").bytes, b"one");
+        assert!(store.names().is_empty(), "the object and its claim gone");
     }
 
     #[test]

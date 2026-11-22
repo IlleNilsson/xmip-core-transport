@@ -7,11 +7,12 @@ use std::time::{Duration, Instant};
 use xcore::fastest::FIVE;
 use xcore::latency::spread;
 use xmip_core_transport::claim::{Claimant, Memory};
-use xmip_core_transport::node::NodeLocation;
+use xmip_core_transport::node::{NodeLocation, NodeStart};
 
+/// A start of the node at `place`, after every start before it.
 fn claimant(place: usize) -> Claimant {
     let node = NodeLocation::new(format!("process-{}/place-{place}", std::process::id()));
-    Claimant::of(&node)
+    Claimant::of(&NodeStart::next(node))
 }
 
 /// A file `claimant`'s send to `target` left behind: its name, no longer
@@ -20,13 +21,13 @@ fn left(claimant: &Claimant, target: &str) -> String {
     claimant.sending(target).name().to_string()
 }
 
-/// A location of a hundred names: thirty this node's sends left, thirty
-/// another's, forty dropped files.
+/// A location of a hundred names: thirty an earlier start of this node's
+/// sends left, thirty another node's, forty dropped files.
 fn crowded() -> Memory {
     let site = Memory::default();
-    let (me, them) = (claimant(0), claimant(1));
+    let (before, them) = (claimant(0), claimant(1));
     for file in 0..30 {
-        site.drop_file(&left(&me, &format!("mine-{file}.edi")), b"ISA");
+        site.drop_file(&left(&before, &format!("mine-{file}.edi")), b"ISA");
         site.drop_file(&left(&them, &format!("theirs-{file}.edi")), b"ISA");
     }
     for file in 0..40 {

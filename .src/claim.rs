@@ -180,11 +180,17 @@ mod tests {
     use super::memory::Memory;
     use super::*;
     use crate::acknowledgement::{Refusal, Verdict};
-    use crate::node::NodeLocation;
+    use crate::node::{NodeLocation, NodeStart};
 
+    /// The node at `place`.
+    fn at(place: usize) -> NodeLocation {
+        NodeLocation::new(format!("process-{}/place-{place}", std::process::id()))
+    }
+
+    /// The claims of a start of the node at `place`, after every start
+    /// before it.
     fn claiming(place: usize) -> Claiming<u64> {
-        let node = NodeLocation::new(format!("process-{}/place-{place}", std::process::id()));
-        Claiming::new(Claimant::of(&node))
+        Claiming::new(Claimant::of(&NodeStart::next(at(place))))
     }
 
     /// What two listings take: the first finds, the second takes what the
@@ -332,22 +338,24 @@ mod tests {
     fn a_starting_claimant_returns_its_own_claims_and_turns_and_no_others() {
         let site = Memory::default();
         site.drop_file("mine.edi", b"1");
-        assert_eq!(settled(&claiming(0), &site).len(), 1);
+        let before = claiming(0);
+        assert_eq!(settled(&before, &site).len(), 1);
         site.drop_file("theirs.edi", b"2");
         assert_eq!(settled(&claiming(1), &site).len(), 1);
-        // Both die holding their claims, and the first a turn as well.
-        let me = claiming(0);
-        assert!(
-            site.take_turn(&turn_of("x.edi"), me.claimant().as_str())
-                .expect("turn")
-        );
+        // Both die holding their claims, and the first a turn as well, and
+        // a claim it wrote before a claim named its start.
+        let held = before.claimant().as_str();
+        assert!(site.take_turn(&turn_of("x.edi"), held).expect("turn"));
+        let (node, _) = held.split_once('~').expect("a start");
+        site.drop_file(&format!("old.edi{MARK}{node}.1790000000123456789"), b"3");
         assert!(site.names().iter().all(|name| is_claimed(name)));
 
-        me.recover(&site).expect("recovered");
+        // The first node starts again.
+        claiming(0).recover(&site).expect("recovered");
         let after = site.names();
         assert!(
-            after.contains("mine.edi"),
-            "its own claim returned: {after:?}"
+            after.contains("mine.edi") && after.contains("old.edi"),
+            "its own claims returned: {after:?}"
         );
         assert!(
             after
@@ -359,6 +367,29 @@ mod tests {
             !after.contains(&turn_of("x.edi")),
             "its turn removed: {after:?}"
         );
+    }
+
+    #[test]
+    fn a_location_starting_beside_a_live_one_of_its_start_leaves_what_it_holds() {
+        let site = Memory::default();
+        site.drop_file("order.edi", b"ISA");
+        let first = claiming(0);
+        let taken = settled(&first, &site).remove(0);
+        let turn = turn_of("next.edi");
+        assert!(
+            site.take_turn(&turn, first.claimant().as_str())
+                .expect("turn")
+        );
+        // Another Location of the same start, over the same directory.
+        let second = Claiming::recovering(first.claimant().clone());
+        assert!(settled(&second, &site).is_empty(), "not taken again");
+        let after = site.names();
+        assert!(after.contains(&taken.claimed), "the first's: {after:?}");
+        assert!(after.contains(&turn), "its turn is left: {after:?}");
+        first
+            .told(&site, &taken.claimed, Some(Verdict::Accepted))
+            .expect("accepted");
+        assert_eq!(site.names().len(), 1, "{:?}", site.names());
     }
 
     struct Located(Memory, Claiming<u64>);
@@ -403,6 +434,25 @@ mod tests {
         assert!(is_claimed("order.edi.xmip-claim"));
         assert!(!is_claimed("order.edi"));
         assert!(claim_of("order.edi.xmip-claim.node.later").is_none());
+    }
+
+    #[test]
+    fn a_claimant_tells_an_earlier_start_of_its_node_from_this_start_and_another_node() {
+        let earlier = Claimant::of(&NodeStart::next(at(0)));
+        let me = Claimant::of(&NodeStart::next(at(0)));
+        let other = Claimant::of(&NodeStart::next(at(1)));
+        let (node, start) = me.as_str().split_once('~').expect("a start");
+        assert_eq!(start.len(), 32, "{me:?}");
+        assert!(!node.contains(['.', '/', '~']), "{me:?}");
+        assert!(me.is_earlier_start(earlier.as_str()));
+        assert!(
+            me.is_earlier_start(node),
+            "the node alone, as written before"
+        );
+        assert!(!me.is_earlier_start(me.as_str()), "this start");
+        assert!(!me.is_earlier_start(other.as_str()), "another node");
+        let claimed = me.claimed("order.edi");
+        assert_eq!(claim_of(&claimed).map(|c| c.claimant), Some(me.as_str()));
     }
 
     #[test]

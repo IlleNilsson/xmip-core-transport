@@ -11,20 +11,24 @@
 //! removes no other node's file.**
 //!
 //! The name is the target's, the mark `.xmip-sending.`, the claimant — the
-//! node's location percent-encoded, as a claimed name carries it
-//! ([`Claimant::of`]) — a count of this process's sends, so two at once
-//! never share one, and the time in nanoseconds since the Unix epoch:
+//! node's location percent-encoded and which start of it sends, as a
+//! claimed name carries them ([`Claimant::of`]) — a count of this process's
+//! sends, so two at once never share one, and the time in nanoseconds since
+//! the Unix epoch:
 //!
 //! ```text
-//! order.edi.xmip-sending.xmip%3A%2F%2F%2F<cluster>%2Fnode%2F<node>.7.1790000000123456789
+//! order.edi.xmip-sending.xmip%3A%2F%2F%2F<cluster>%2Fnode%2F<node>~<start>.7.1790000000123456789
 //! ```
 //!
 //! **A send in flight is never removed.** A node builds a Location's
 //! transport, and so recovers, while its other Locations may be sending
-//! into the same directory. Every name is held in this process's set of
-//! sends in flight from before its file is created until the send has
-//! renamed or removed it ([`Unfinished`]), and a removal passes over every
-//! name the set holds.
+//! into the same directory: a removal takes only what an earlier start of
+//! the node left ([`Claimant::is_earlier_start`]; ADR-0024, amendment
+//! 2026-11-22). And every name is held in this process's set of sends in
+//! flight from before its file is created until the send has renamed or
+//! removed it ([`Unfinished`]), and a removal passes over every name the set
+//! holds, so a start's send still writing as its node starts again in the
+//! same process is left too.
 
 use std::collections::BTreeSet;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -83,10 +87,10 @@ impl Claimant {
         Unfinished(name)
     }
 
-    /// Of `names`, the names lying at `site`, every sent file this
-    /// claimant's sends left unfinished is removed — never another's, and
-    /// never one a send of this process is still writing. How many were
-    /// removed.
+    /// Of `names`, the names lying at `site`, every sent file an earlier
+    /// start of this claimant's node left unfinished is removed — never
+    /// another node's, never this start's, and never one a send of this
+    /// process is still writing. How many were removed.
     ///
     /// # Errors
     /// Where the far end refused a removal.
@@ -97,7 +101,7 @@ impl Claimant {
     ) -> Result<usize> {
         let mut left: Vec<String> = names
             .into_iter()
-            .filter(|name| sender_of(name) == Some(self.as_str()))
+            .filter(|name| sender_of(name).is_some_and(|sender| self.is_earlier_start(sender)))
             .collect();
         // A name lying there and in flight is one a send is writing; one
         // not in flight now never will be, since no two sends share a name.
@@ -148,11 +152,12 @@ mod tests {
     use super::super::claiming::Claiming;
     use super::super::memory::Memory;
     use super::*;
-    use crate::node::NodeLocation;
+    use crate::node::{NodeLocation, NodeStart};
 
+    /// A start of the node at `place`, after every start before it.
     fn claimant(place: usize) -> Claimant {
         let node = NodeLocation::new(format!("process-{}/place-{place}", std::process::id()));
-        Claimant::of(&node)
+        Claimant::of(&NodeStart::next(node))
     }
 
     /// A file `claimant`'s send to `target` left behind: its name, no
@@ -164,26 +169,33 @@ mod tests {
     #[test]
     fn a_starting_node_removes_what_its_sends_left_and_nothing_of_another() {
         let site = Memory::default();
-        let (me, them) = (claimant(0), claimant(1));
-        let (mine, theirs) = (left(&me, "order.edi"), left(&them, "order.edi"));
-        for name in ["order.edi", &mine, &theirs] {
+        let (before, them) = (claimant(0), claimant(1));
+        let (mine, theirs) = (left(&before, "order.edi"), left(&them, "order.edi"));
+        let me = claimant(0);
+        let own = left(&me, "order.edi");
+        for name in ["order.edi", &mine, &theirs, &own] {
             site.drop_file(name, b"ISA");
         }
 
         me.recover(&site).expect("recovered");
 
         let after = site.names();
-        assert!(!after.contains(&mine), "its own removed: {after:?}");
+        assert!(
+            !after.contains(&mine),
+            "an earlier start's removed: {after:?}"
+        );
         assert!(after.contains(&theirs), "another node's kept: {after:?}");
+        assert!(after.contains(&own), "this start's kept: {after:?}");
         assert!(after.contains("order.edi"), "{after:?}");
     }
 
     #[test]
     fn a_send_in_flight_is_never_removed() {
         let site = Memory::default();
-        let me = claimant(0);
-        let writing = me.sending("order.edi");
+        let writing = claimant(0).sending("order.edi");
         site.drop_file(writing.name(), b"ISA");
+        // The node started again in this process while that send writes.
+        let me = claimant(0);
 
         me.recover(&site).expect("recovered");
         assert!(site.names().contains(writing.name()), "still being written");

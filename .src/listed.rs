@@ -16,11 +16,12 @@
 //! where none lies — the store's own exclusive step, `If-None-Match: *` on
 //! S3 and Azure Blob, `ifGenerationMatch=0` on Google Cloud Storage — and
 //! holds the claimed name the file family's claim records, the node's
-//! location and the time ([`crate::claim::Claimant::claimed`]). A node
-//! that finds another's claim, or loses the write, leaves the object to
-//! whoever holds it; the claim is let go however the cycle ends, and a
-//! node that starts again lets go of every claim its name still holds
-//! ([`Claims`]).
+//! location, which start of it claimed, and the time
+//! ([`crate::claim::Claimant::claimed`]). A node that finds another's
+//! claim, or loses the write, leaves the object to whoever holds it; the
+//! claim is let go however the cycle ends, and a node that starts again
+//! lets go of every claim its earlier starts still hold, never one of its
+//! own start (ADR-0024, amendment 2026-11-22; [`Claims`]).
 //!
 //! The get and the delete hold to the object as it was listed: each names
 //! the stamp its listing gave it as the store's precondition — S3's and

@@ -32,7 +32,7 @@ use std::time::Duration;
 use xcore::settings::{Applies, Fixed, Given, Kind, Presence, Read, Setting, Settings};
 
 use crate::error::Result;
-use crate::node::NodeLocation;
+use crate::node::NodeStart;
 use crate::protocol::Transport;
 
 /// The setting a Location bounds its technology's waits on a far end by.
@@ -188,20 +188,21 @@ pub trait Configured: Transport + Sized {
         self
     }
 
-    /// This transport on the node at `node`: what the runtime calls once,
-    /// as it builds a Location's transport, right after
+    /// This transport on `node`, one start of its node: what the runtime
+    /// calls once, as it builds a Location's transport, right after
     /// [`Configured::open`] (the owner's *Option A*, 2026-10-03: the runtime
     /// gives every transport its node's identity once, as it builds it,
-    /// `node.rs`). A technology
+    /// `node.rs`), every Location of one start given the same. A technology
     /// that records at the far end who holds what — a claimed file's name
     /// (ADR-0024, amendment 2026-09-26), an object's claim (amendment
-    /// 2026-11-20) — keeps it, and returns there what the node held before
-    /// it last stopped. Nothing is kept by default.
+    /// 2026-11-20) — keeps it, and returns there what the node's earlier
+    /// starts held, never what this start holds through another Location
+    /// (amendment 2026-11-22). Nothing is kept by default.
     ///
     /// # Errors
     /// Where the technology could not return what the node held before:
     /// the far end could not be read.
-    fn on_node(self, _node: &NodeLocation) -> Result<Self> {
+    fn on_node(self, _node: &NodeStart) -> Result<Self> {
         Ok(self)
     }
 

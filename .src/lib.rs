@@ -56,8 +56,8 @@
 //!   destination.rs      where a send goes when an address names the server and a
 //!                       setting the destination on it: the empty target a Send
 //!                       Location names, or a target naming another
-//!   node.rs             the node a transport is built on, by its location, given
-//!                       once as the runtime builds it
+//!   node.rs             the node a transport is built on, by its location and
+//!                       which start of it, given once as the runtime builds it
 //!   sharing.rs          what the Locations of one node share of a thing each names:
 //!                       a serial device's one port, by its path, handed to each
 //!                       transport as the runtime builds it
@@ -203,7 +203,7 @@ pub use headers::Headers;
 pub use listening::{Accepting, Listening};
 pub use login::Login;
 pub use loopback::{FarEnd, LOOPBACK_TIMEOUT, Loopback, UNBLOCK_TIMEOUT};
-pub use node::NodeLocation;
+pub use node::{NodeLocation, NodeStart};
 pub use outgoing::Outgoing;
 pub use pinned::Pinned;
 pub use pool::{Pool, Pooled};

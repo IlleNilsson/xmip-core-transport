@@ -65,8 +65,8 @@ pub struct Claiming<S> {
 
 struct Inner<S> {
     claimant: Claimant,
-    /// Whether what the claimant's name still holds is yet to be returned,
-    /// by the first listing that reaches the far end.
+    /// Whether what the claimant's node's earlier starts still hold is yet
+    /// to be returned, by the first listing that reaches the far end.
     recovering: AtomicBool,
     /// What the last listing found and did not take: the stability check's
     /// other half.
@@ -90,10 +90,10 @@ impl<S: Clone + Eq + Send + 'static> Claiming<S> {
         Self::built(claimant, false)
     }
 
-    /// Claims made as `claimant`, a node starting: what its name still
-    /// holds is returned by the first listing that reaches the far end
-    /// ([`Self::recover`]) — a server out of reach as the node starts does
-    /// not stop it, and a Send Location never connects for it.
+    /// Claims made as `claimant`, a node starting: what its node's earlier
+    /// starts still hold is returned by the first listing that reaches the
+    /// far end ([`Self::recover`]) — a server out of reach as the node
+    /// starts does not stop it, and a Send Location never connects for it.
     #[must_use]
     pub fn recovering(claimant: Claimant) -> Self {
         Self::built(claimant, true)
@@ -290,10 +290,12 @@ impl<S: Clone + Eq + Send + 'static> Claiming<S> {
         self.inner.held.locked().values().cloned().collect()
     }
 
-    /// Every claim this claimant's name still holds at `site` returned, and
-    /// every turn it left removed: the node is starting, so whatever it held
-    /// before, nothing holds now. One whose dropped name a newer artifact
-    /// has taken is held until the name is free.
+    /// Every claim an earlier start of this claimant's node still holds at
+    /// `site` returned, and every turn such a start left removed: the node
+    /// started again, so whatever an earlier start held, nothing holds now;
+    /// what this start holds through another Location is left
+    /// ([`Claimant::recover`]). One whose dropped name a newer artifact has
+    /// taken is held until the name is free.
     ///
     /// # Errors
     /// Where `site` could not be listed.
