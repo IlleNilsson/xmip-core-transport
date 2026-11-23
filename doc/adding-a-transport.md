@@ -180,10 +180,10 @@ as the node starts.
 
 A transport is its own far end (ADR-0051): the technology ships the
 capability's `Loopback`, its payload ceiling and its refusals, and the
-Essentials drives it through one adapter over that, by every content contract
+System Tests drive it through one adapter over that, by every content contract
 at once, timed, sized and fault-injected. A new transport is its own loopback
 and a line in the list, not a new scenario — ADR-0028 and
-`test/core/essentials/README.md`.
+`test/core/system-test/README.md`.
 
 The far end is the capability's, never a struct of the technology's own: a
 TCP protocol stands up `listening::Listening` over its `Accepting` — the

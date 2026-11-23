@@ -62,7 +62,7 @@
 //!                       a serial device's one port, by its path, handed to each
 //!                       transport as the runtime builds it
 //!   loopback.rs        a transport that is both ends of one exchange, with its
-//!                       ceiling and refusals; what the Essentials drives (ADR-0051);
+//!                       ceiling and refusals; what the System Tests drive (ADR-0051);
 //!                       both ends on two threads, and the poke that releases a far end
 //!
 //! the far ends          what a technology's loopback stands up (ADR-0051)

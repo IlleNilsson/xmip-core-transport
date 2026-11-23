@@ -43,7 +43,7 @@ fn unbound(what: &str, bind: &str, error: &io::Error) -> TransportError {
 /// Nagle's algorithm off. `None` waits forever, which is what a listening Receive Location does.
 ///
 /// The wait for the connection is bounded as well as the reads. It was not
-/// until 2026-09-20, and the cost was the Essentials' own test suite: a far
+/// until 2026-09-20, and the cost was the System Tests' own test suite: a far
 /// end stood up for one exchange blocked in `accept` for good when its near
 /// end never connected, so a run that should have failed in two seconds hung
 /// with the process at zero percent and thirty-six loopback connections open.
@@ -398,7 +398,7 @@ mod tests {
 
     #[test]
     fn an_accept_nobody_answers_gives_up_within_its_timeout() {
-        // The defect this asserts hung the Essentials' whole suite: a far
+        // The defect this asserts hung the System Tests' whole suite: a far
         // end stood up for one exchange waited in `accept` for good when its
         // near end never connected (2026-09-20). It must fail, and it must
         // fail inside the time it was given rather than a moment before the
