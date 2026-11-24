@@ -165,16 +165,20 @@ per message, and says why.
 ## Reaching a node
 
 A transport reaches a node by being linked into `xmip-service`, never by
-being installed beside it: the runtime's Module loader drives the contract
-table alone, and the service is built without it
-([built, not in the assembled service](../../../../../doc/architecture/estate-map.md#module-loading)). So a new
-transport needs three more edits and a rebuild — a `transport-<name>`
+being installed beside it: the runtime's Module loader opens a contract's
+table and a Work Process unit's, no transport's
+([built, in the assembled service](../../../../../doc/architecture/estate-map.md#module-loading)). So a new
+transport needs four more edits and a rebuild — a `transport-<name>`
 feature in the estate root's `Cargo.toml`, its line in
-`.src/service/built.rs`'s `transports()`, and its repository name in the
+`.src/service/built.rs`'s `transports()`, its far end in the root's
+`.src/test/service/far_ends.rs`, which proves it carrying a file through a
+node to the far end its `Loopback` stands, and its repository name in the
 `technologies` of each site under `deploy/site` that should carry it — and
 then `Build-XmipService -Site <name>` for each of them. Only then may a node's TOML name
 it; a Location naming a transport its program was not built with is refused
-as the node starts.
+as the node starts. A far end only one process reaches — a simulated bus, a
+radio held in memory — proves nothing through a node, and its transport
+stays unlinked (ADR-0015, amendment 2026-11-24).
 
 ## Prove it
 
