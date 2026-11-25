@@ -92,6 +92,22 @@ impl fmt::Debug for Secured {
     }
 }
 
+/// The text `secured` holds, read now, where the Location names a secret;
+/// `kept`, what the technology was built with, where it names none: the one
+/// way a technology presents a secret that is one text — a password, an
+/// access key's secret, a shared key, a bearer token (ADR-0015, amendment
+/// 2026-11-25). Each is kept as a `password`: UTF-8 the far end checks.
+///
+/// # Errors
+///
+/// What [`Secured::as_kind`] refuses for a password.
+pub fn presented(secured: Option<&Secured>, kept: &str, presenting: &str) -> Result<String> {
+    secured.map_or_else(
+        || Ok(kept.to_string()),
+        |secured| secured.as_kind(SecretKind::Password, presenting),
+    )
+}
+
 /// `login` with the password of `secured`, where the Location names a
 /// secret, read now; `login` as it is where it names none: the one way a
 /// technology that logs in with a user and a password presents its secret.
@@ -100,26 +116,31 @@ impl fmt::Debug for Secured {
 ///
 /// What [`Secured::as_kind`] refuses for a password.
 pub fn logged_in(login: &Login, secured: Option<&Secured>, presenting: &str) -> Result<Login> {
-    match secured {
-        Some(secured) => Ok(Login::new(
-            login.user.clone(),
-            secured.as_kind(SecretKind::Password, presenting)?,
-        )),
-        None => Ok(login.clone()),
-    }
+    Ok(Login::new(
+        login.user.clone(),
+        presented(secured, &login.password, presenting)?,
+    ))
 }
 
 /// The refusal of `secured`, named by a Location whose `setting` names no
-/// user: the one way a technology that presents a password beside a user
-/// its Location may leave out refuses a secret with none, as the node
-/// starts, since the password would go out as nobody's.
+/// one to present it for — a user, an access key ID, a shared access
+/// policy — `as_what` saying what it goes out as: the one way a technology
+/// that presents a secret beside whose it is, a setting its Location may
+/// leave out, refuses a secret with none, as the node starts, since it
+/// would go out as nobody's.
 #[must_use]
-pub fn without_user(secured: &Secured, setting: &str) -> TransportError {
+pub fn without_holder(secured: &Secured, as_what: &str, setting: &str) -> TransportError {
     TransportError::permanent(format!(
-        "the secret '{}' is presented as the password of the user the \"{setting}\" setting \
-         names, and none is named",
+        "the secret '{}' is presented as {as_what} the \"{setting}\" setting names, and none \
+         is named",
         secured.name()
     ))
+}
+
+/// [`without_holder`] for a password beside the user `setting` names.
+#[must_use]
+pub fn without_user(secured: &Secured, setting: &str) -> TransportError {
+    without_holder(secured, "the password of the user", setting)
 }
 
 /// Secrets held in memory, for the tests of what presents one: what a test
@@ -200,6 +221,22 @@ mod tests {
                 .message
                 .contains("is a password, and sftp presents a key"),
             "{wrong}"
+        );
+    }
+
+    #[test]
+    fn a_named_secret_is_presented_and_none_named_presents_what_was_built() {
+        let kept = Arc::new(Kept::default());
+        let secured = kept.secured("partner-x.aws");
+        let refused = presented(Some(&secured), "built", "aws-s3").expect_err("not set");
+        assert!(refused.retryable, "{refused}");
+        let value = Kept::drawn();
+        kept.set("partner-x.aws", SecretKind::Password, &value);
+        let presented_now = presented(Some(&secured), "built", "aws-s3").expect("set now");
+        assert_eq!(presented_now, value);
+        assert_eq!(
+            presented(None, "built", "aws-s3").expect("none named"),
+            "built"
         );
     }
 }
