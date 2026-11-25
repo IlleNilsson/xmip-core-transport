@@ -109,6 +109,19 @@ pub fn logged_in(login: &Login, secured: Option<&Secured>, presenting: &str) -> 
     }
 }
 
+/// The refusal of `secured`, named by a Location whose `setting` names no
+/// user: the one way a technology that presents a password beside a user
+/// its Location may leave out refuses a secret with none, as the node
+/// starts, since the password would go out as nobody's.
+#[must_use]
+pub fn without_user(secured: &Secured, setting: &str) -> TransportError {
+    TransportError::permanent(format!(
+        "the secret '{}' is presented as the password of the user the \"{setting}\" setting \
+         names, and none is named",
+        secured.name()
+    ))
+}
+
 /// Secrets held in memory, for the tests of what presents one: what a test
 /// sets is what is read. Never in a production build (ADR-0044).
 #[cfg(any(test, feature = "test-support"))]
