@@ -162,6 +162,35 @@ the near end keeps its session. A user and a password are the capability's
 a Stream by the connection itself — raw TCP, closed to end it — connects
 per message, and says why.
 
+## The declaration
+
+What a Location of the technology is configured with is its declaration,
+written once in `src/declaration.rs`: `SETTINGS`, with every default and
+limit a setting names, and `SCHEMES`. `Configured` reads them. The crate
+builds with its `declaration` feature alone, its code and every dependency
+only the code uses behind the default feature, so the library the surfaces
+load carries the settings without the code (ADR-0064, amendment
+2026-11-26):
+
+```toml
+[features]
+default = ["declaration", "dep:net", "dep:codec"]
+declaration = []
+```
+
+- The code is gated `#[cfg(feature = "default")]`, the module
+  `#[cfg(feature = "declaration")]`; a feature that is code, such as `tls`,
+  turns the default on.
+- A technology the code rides on is an optional dependency of the code. One
+  whose setting or default the declaration takes is a dependency without
+  its default, `declaration = ["<it>/declaration"]`, its default in yours.
+- The declaration builds on every platform, where the code cannot.
+
+`test/Declaration.Test.ps1` refuses a technology without the feature, and
+one whose declaration compiles more than its capability and other
+declarations. The README says so in a section of its own, "The
+declaration".
+
 ## Reaching a node
 
 A transport reaches a node by being linked into `xmip-service`, never by
