@@ -185,11 +185,15 @@ declaration = []
   whose setting or default the declaration takes is a dependency without
   its default, `declaration = ["<it>/declaration"]`, its default in yours.
 - The declaration builds on every platform, where the code cannot.
+- The gathering crate, `xmip-core-declaration` in Operation, lists it: a
+  dependency without its default and with `declaration`, and one
+  `transport!(…)` line in `TRANSPORTS`. Through it the language server, the
+  desktop and `xmip validate` suggest and check its settings.
 
-`test/Declaration.Test.ps1` refuses a technology without the feature, and
-one whose declaration compiles more than its capability and other
-declarations. The README says so in a section of its own, "The
-declaration".
+`test/Declaration.Test.ps1` refuses a technology without the feature, one
+whose declaration compiles more than its capability and other
+declarations, and a transport the gathering crate leaves out. The README
+says so in a section of its own, "The declaration".
 
 ## Reaching a node
 
