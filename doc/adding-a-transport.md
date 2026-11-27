@@ -213,6 +213,20 @@ as the node starts. A far end only one process reaches — a simulated bus, a
 radio held in memory — proves nothing through a node, and its transport
 stays unlinked (ADR-0015, amendment 2026-11-24).
 
+A far end that needs a device of the machine's — a pseudo-terminal, a CAN
+or Ethernet interface, a Bluetooth controller — is stood where the machine
+has one, and elsewhere the test says SKIPPED and why. A transport reaching
+a link of the kernel's is linked on Linux alone, in `built.rs`'s
+`kernel_transports`, its dependency the root's for Linux alone: a CAN or
+Ethernet one is proven in a network namespace the service test makes
+(`namespaced.rs`), and Bluetooth in the service test's own run, from the
+first of two virtual controllers its crate makes over the kernel's
+`/dev/vhci` to a far end on the second (`controller`, behind
+`test-support`; ADR-0015, amendment 2026-11-27). Where the kernel's socket
+takes an address no safe binding writes — Bluetooth's `sockaddr_l2` — that
+address is the crate's one unsafe file, listed in `test/Unsafe.Test.ps1`
+(ADR-0050, amendment 2026-09-25).
+
 ## Prove it
 
 A transport is its own far end (ADR-0051): the technology ships the
