@@ -23,8 +23,7 @@ impl<W: Wire> Configured for SqlTransport<W> {
     /// connects.
     const SETTINGS: &'static Settings = W::SETTINGS;
 
-    /// The schemes a Location's address is entered with to choose this
-    /// technology.
+    /// The wire's, [`Wire::SCHEMES`].
     const SCHEMES: &'static [&'static str] = W::SCHEMES;
 
     /// The password is the secret the Location names, never a setting.

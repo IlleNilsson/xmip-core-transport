@@ -169,8 +169,8 @@ written once in `src/declaration.rs`: `SETTINGS`, with every default and
 limit a setting names, and `SCHEMES`. `Configured` reads them. The crate
 builds with its `declaration` feature alone, its code and every dependency
 only the code uses behind the default feature, so the library the surfaces
-load carries the settings without the code (ADR-0064, amendment
-2026-11-26):
+load carries the settings without the code (ADR-0064, amendments
+2026-10-22 and 2026-11-26; open problem 48):
 
 ```toml
 [features]

@@ -20,7 +20,15 @@ use std::net::{Shutdown, SocketAddr, TcpStream, ToSocketAddrs, UdpSocket};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 
+use crate::arrivals::Arrivals;
 use crate::error::{Result, TransportError, classify};
+
+/// How a protocol that answers one request at a time tells its arrivals
+/// ([`crate::Transport::arrivals`]): each its own, its connection [`Busy`]
+/// meanwhile. HTTP, SMTP and what rides on HTTP's listener say this.
+pub const ONE_AT_A_TIME: Arrivals = Arrivals::Unordered(
+    "each request is its own, and a connection waiting for its answer takes no next request",
+);
 
 /// What an answer tells the wait for a Receive Location's peers once it
 /// frees its connection (`crate::serving`): a datagram to a socket of the
