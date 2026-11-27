@@ -61,6 +61,10 @@
 //!   sharing.rs          what the Locations of one node share of a thing each names:
 //!                       a serial device's one port, by its path, handed to each
 //!                       transport as the runtime builds it
+//!   line.rs             a serial line: where a protocol's frames go and come from
+//!   ieee802154.rs       an IEEE 802.15.4 radio: a frame to a short address, the
+//!                       next heard and who sent it; the kernel's interface is one,
+//!                       a technology's node in process another
 //!   loopback.rs        a transport that is both ends of one exchange, with its
 //!                       ceiling and refusals; what the System Tests drive (ADR-0051);
 //!                       both ends on two threads, and the poke that releases a far end
@@ -155,6 +159,7 @@ pub mod file_name;
 pub mod guard;
 pub mod headers;
 pub mod held;
+pub mod ieee802154;
 pub mod kept;
 #[cfg(any(test, feature = "test-support"))]
 pub mod latency;

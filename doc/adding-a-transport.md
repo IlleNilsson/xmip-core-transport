@@ -227,6 +227,16 @@ takes an address no safe binding writes — Bluetooth's `sockaddr_l2` — that
 address is the crate's one unsafe file, listed in `test/Unsafe.Test.ps1`
 (ADR-0050, amendment 2026-09-25).
 
+A technology above an IEEE 802.15.4 MAC rides the capability's
+`ieee802154::Radio` (`.src/ieee802154.rs`) and writes no MAC header of
+its own: a Location's address names an interface of Linux's kernel, which
+`ieee802154::interface` opens, or the technology's own node in process,
+`loopback`. It is linked on Linux alone, in `built.rs`'s
+`kernel_transports()`, and its far end stands on the machine's other
+interface (`.src/test/service/far_ends/radio.rs`), carried one technology
+at a time (`aired.rs`), since every socket on an interface hears every
+frame sent to it (ADR-0015 and ADR-0051, amendments 2026-11-27).
+
 ## Prove it
 
 A transport is its own far end (ADR-0051): the technology ships the
