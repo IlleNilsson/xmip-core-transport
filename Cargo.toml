@@ -27,25 +27,25 @@ test-support = ["xcore/test-support"]
 [dependencies]
 # XML character data, escaped and unescaped as every reader in the estate
 # does it.
-codec = { package = "xmip-core-library-codec", git = "https://github.com/IlleNilsson/xmip-core-library-codec", branch = "main" }
+codec = { workspace = true }
 # X.690, whose failures this crate's error takes with `From`, so a technology
 # that frames with it (snmp, iec-61850) writes `?`. The technologies depend on
 # the reader themselves; nothing re-exports it.
-asn1 = { package = "xmip-core-library-asn1", git = "https://github.com/IlleNilsson/xmip-core-library-asn1", branch = "main" }
+asn1 = { workspace = true }
 # TLS, for the one conversion a technology needs to write `?`: optional, so a
 # build without it carries no TLS stack.
-tls = { package = "xmip-core-library-tls", git = "https://github.com/IlleNilsson/xmip-core-library-tls", branch = "main", optional = true }
+tls = { workspace = true, optional = true }
 # The network primitives, whose failures this crate's error takes with `From`,
 # so a technology that asks over HTTP (`net::http`) or reads a URL
 # (`net::Endpoint`) writes `?`; and the target a SQL send names
 # (`net::Target`). The technologies depend on it themselves; nothing
 # re-exports it.
-net = { package = "xmip-core-library-net", git = "https://github.com/IlleNilsson/xmip-core-library-net", branch = "main" }
+net = { workspace = true }
 # SQL: the dialect a SQL technology names, which writes the literal a
 # column takes and binds a row's name into an `accept` statement
 # (`sql::accept`). The technologies depend on it themselves; nothing
 # re-exports it.
-sql = { package = "xmip-core-library-sql", git = "https://github.com/IlleNilsson/xmip-core-library-sql", branch = "main" }
+sql = { workspace = true }
 # The readiness wait a bounded accept blocks on (socket.rs): poll(2), and
 # WSAPoll on Windows, behind a safe call. Only its `event` module; std has
 # no accept with a deadline, and the alternative was a nap and a retry.
@@ -55,14 +55,14 @@ rustix = { version = "1", default-features = false, features = ["std", "event", 
 # The names a transport writes what it observed of an arrival's sender
 # under — the socket peer, a TLS peer certificate, an SSH key — which the
 # identity gates read (`context::property`, ADR-0019 amendment 2026-09-24).
-context = { package = "xmip-core-context", git = "https://github.com/IlleNilsson/xmip-core-context", branch = "main" }
+context = { workspace = true }
 # The settings declaration every technology writes (xcore::settings), read
 # through by `Configured` (configured.rs): the one shape a transport's and a
 # contract's settings share (ADR-0064, amendment 2026-09-26); and the failure
 # the resilience guards judge, `xcore::Failure`, which this crate's error
 # becomes by `From`, retryable as it was. The technologies depend on it
 # themselves; nothing re-exports it.
-xcore = { package = "xmip-core", git = "https://github.com/IlleNilsson/xmip-core", branch = "main" }
+xcore = { workspace = true }
 
 # The module's timing program (doc/governance/rust-style.md section 5c): a
 # plain cargo test leaves it out, and the landing runs it after every other
@@ -76,9 +76,9 @@ required-features = ["test-support"]
 [dev-dependencies]
 # A loopback address no one holds, for what a test wants nothing listening
 # at or binds later (`net::fixture::unheld`).
-net = { package = "xmip-core-library-net", git = "https://github.com/IlleNilsson/xmip-core-library-net", branch = "main", features = ["test-support"] }
+net = { workspace = true, features = ["test-support"] }
 # A round's spread and spin (`xcore::latency`), which latency.rs measures
 # its plain wake with.
-xcore = { package = "xmip-core", git = "https://github.com/IlleNilsson/xmip-core", branch = "main", features = ["test-support"] }
+xcore = { workspace = true, features = ["test-support"] }
 # A test's own temporary folder (`file::temporary`); for the tests only.
-file = { package = "xmip-core-library-file", git = "https://github.com/IlleNilsson/xmip-core-library-file", branch = "main", features = ["test-support"] }
+file = { workspace = true, features = ["test-support"] }

@@ -135,15 +135,16 @@ crate, never sideways (ADR-0044).
 ## The crate
 
 `Cargo.toml` names the package for the repository and depends on the
-capability, tracking `main` (ADR-0005):
+capability by the keys the estate's root `[workspace.dependencies]` holds,
+by path (repository-model.md section 6; ADR-0005, amendment 2026-11-28):
 
 ```toml
 [package]
 name = "xmip-core-transport-<name>"
 
 [dependencies]
-transport = { package = "xmip-core-transport", git = "…", branch = "main" }
-xcore = { package = "xmip-core", git = "…", branch = "main" }  # the settings shape
+transport = { workspace = true }
+xcore = { workspace = true }  # the settings shape
 ```
 
 Implement the trait in `src/lib.rs`. Keep `receive` honest: *nothing there is
